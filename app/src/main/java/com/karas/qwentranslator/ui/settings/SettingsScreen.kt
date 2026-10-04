@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -33,6 +35,8 @@ fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
+            .imePadding()
             .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
@@ -51,6 +55,7 @@ fun SettingsScreen(
             label = { Text("Язык перевода (код)") },
             supportingText = { Text("Например: ru, en, pl, uk, de") },
             singleLine = true,
+            enabled = !state.loading && !state.saving,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -58,6 +63,7 @@ fun SettingsScreen(
             onValueChange = onApiKeyChange,
             label = { Text("Groq API key") },
             singleLine = true,
+            enabled = !state.loading && !state.saving,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
             supportingText = { Text("Хранится зашифрованно через Android Keystore. Для Translate есть web-fallback; Explain требует Qwen.") },
@@ -68,6 +74,7 @@ fun SettingsScreen(
             onValueChange = onModelChange,
             label = { Text("Модель") },
             singleLine = true,
+            enabled = !state.loading && !state.saving,
             modifier = Modifier.fillMaxWidth(),
         )
         OutlinedTextField(
@@ -75,11 +82,14 @@ fun SettingsScreen(
             onValueChange = onBaseUrlChange,
             label = { Text("OpenAI-compatible base URL") },
             singleLine = true,
+            enabled = !state.loading && !state.saving,
             modifier = Modifier.fillMaxWidth(),
         )
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Button(onClick = onSave) { Text("Сохранить") }
+            Button(onClick = onSave, enabled = !state.loading && !state.saving) {
+                Text(if (state.saving) "Сохранение…" else "Сохранить")
+            }
             if (state.saved) {
                 Text(
                     "Сохранено",
@@ -89,11 +99,11 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(Modifier.height(8.dp))
-        Text("MVP", style = MaterialTheme.typography.titleMedium)
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        if (state.loading) Text("Загрузка настроек…")
         Text(
-            "Сейчас: выделение → popup, Translate, Explain, Copy, Replace, Share fallback, Qwen/Groq и Google web fallback. " +
-                "История, офлайн-словари и общий Rust/UniFFI core оставлены следующим этапом, интерфейс TranslatorEngine уже изолирует UI от backend.",
+            "Explain объясняет текст на его исходном языке. Пустой API key удаляет сохранённый ключ. " +
+                "Выделенный текст передаётся выбранному AI сервису; при отказе Translate использует Google web fallback.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

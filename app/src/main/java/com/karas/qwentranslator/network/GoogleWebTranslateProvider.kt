@@ -39,13 +39,11 @@ class GoogleWebTranslateProvider(
             .get()
             .build()
 
-        client.newCall(httpRequest).execute().use { response ->
-            val body = response.body.string()
-            if (!response.isSuccessful) {
-                throw TranslationException.ProviderFailure("Google fallback HTTP ${response.code}")
-            }
-            parse(body, request)
+        val response = client.newCall(httpRequest).awaitPayload()
+        if (response.code !in 200..299) {
+            throw TranslationException.ProviderFailure("Google fallback HTTP ${response.code}")
         }
+        parse(response.body, request)
     }
 
     internal fun parse(body: String, request: TranslationRequest): TranslationResult {
@@ -54,8 +52,12 @@ class GoogleWebTranslateProvider(
             val segments = root.getJSONArray(0)
             val output = buildString {
                 for (index in 0 until segments.length()) {
-                    val segment = segments.optJSONArray(index) ?: continue
-                    append(segment.optString(0))
+                    val segment = segments.getJSONArray(index)
+                    val translated = segment.get(0)
+                    if (translated !is String) {
+                        throw TranslationException.ProviderFailure("Некорректный ответ Google fallback")
+                    }
+                    append(translated)
                 }
             }.trim()
             if (output.isBlank()) {
@@ -64,13 +66,13 @@ class GoogleWebTranslateProvider(
             return TranslationResult(
                 outputText = output,
                 providerId = id,
-                detectedSourceLanguage = root.optString(2).takeIf { it.isNotBlank() },
+                detectedSourceLanguage = (root.opt(2) as? String)?.takeIf { it.isNotBlank() },
                 operation = request.operation,
             )
         } catch (e: TranslationException) {
             throw e
         } catch (e: Exception) {
-            throw TranslationException.ProviderFailure("Не удалось разобрать Google fallback", e)
+            throw TranslationException.ProviderFailure("Не удалось разобрать Google fallback")
         }
     }
 }

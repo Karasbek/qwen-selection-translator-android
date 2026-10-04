@@ -4,8 +4,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,15 +47,17 @@ fun PopupScreen(
     onRetry: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
+            .safeDrawingPadding()
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.10f))
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.BottomCenter,
     ) {
         Surface(
             modifier = Modifier
+                .heightIn(max = maxHeight * 0.85f)
                 .widthIn(max = 680.dp)
                 .fillMaxWidth()
                 .navigationBarsPadding()
@@ -69,7 +76,7 @@ fun PopupScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("Qwen Перевод", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("Qwen Перевод", modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(
                         "Настройки",
                         modifier = Modifier
@@ -81,15 +88,17 @@ fun PopupScreen(
                 }
 
                 Spacer(Modifier.height(10.dp))
-                Text(
-                    sourceText,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 5,
-                )
+                SelectionContainer {
+                    Text(
+                        sourceText.take(12_001),
+                        modifier = Modifier.heightIn(max = 140.dp).verticalScroll(rememberScrollState()),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OperationButton(
                         label = "Перевод",
                         selected = currentOperation(state) == Operation.TRANSLATE,
@@ -113,15 +122,15 @@ fun PopupScreen(
                         }
                     }
                     is PopupUiState.Success -> {
-                        Text(state.text, style = MaterialTheme.typography.bodyLarge)
+                        SelectionContainer { Text(state.text, style = MaterialTheme.typography.bodyLarge) }
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            state.provider,
+                            "${state.sourceLanguage} → ${state.targetLanguage} · ${state.provider}",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Spacer(Modifier.height(16.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             OutlinedButton(onClick = { onCopy(state.text) }) {
                                 Text("Копировать")
                             }
@@ -130,6 +139,7 @@ fun PopupScreen(
                                     Text("Заменить")
                                 }
                             }
+                            OutlinedButton(onClick = onRetry) { Text("Повторить") }
                         }
                     }
                     is PopupUiState.Error -> {
@@ -142,6 +152,8 @@ fun PopupScreen(
                         OutlinedButton(onClick = onRetry) { Text("Повторить") }
                     }
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть") }
             }
         }
     }
@@ -156,8 +168,4 @@ private fun OperationButton(label: String, selected: Boolean, onClick: () -> Uni
     }
 }
 
-private fun currentOperation(state: PopupUiState): Operation = when (state) {
-    is PopupUiState.Loading -> state.operation
-    is PopupUiState.Success -> state.operation
-    is PopupUiState.Error -> state.operation
-}
+private fun currentOperation(state: PopupUiState): Operation = state.operation

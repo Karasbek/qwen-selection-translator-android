@@ -19,6 +19,9 @@ class AppContainer(context: Context) {
         .readTimeout(25, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
         .callTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(false)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     val engine: TranslatorEngine = DefaultTranslatorEngine(

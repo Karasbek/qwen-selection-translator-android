@@ -6,8 +6,9 @@ import com.karas.qwentranslator.core.TranslationException
 import com.karas.qwentranslator.core.TranslationRequest
 import com.karas.qwentranslator.core.TranslationResult
 import com.karas.qwentranslator.core.TranslatorProvider
-import com.karas.qwentranslator.data.SecretStore
-import com.karas.qwentranslator.data.SettingsRepository
+import com.karas.qwentranslator.data.ApiKeyStore
+import com.karas.qwentranslator.data.SettingsStore
+import com.karas.qwentranslator.data.AppSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -19,10 +20,10 @@ import org.json.JSONObject
 
 class OpenAiCompatibleProvider(
     private val client: OkHttpClient,
-    private val settingsRepository: SettingsRepository,
-    private val secretStore: SecretStore,
+    private val settingsRepository: SettingsStore,
+    private val secretStore: ApiKeyStore,
 ) : TranslatorProvider {
-    override val id: String = "Qwen/Groq"
+    override val id: String = "AI"
 
     override fun supports(operation: Operation): Boolean = true
 
@@ -33,23 +34,10 @@ class OpenAiCompatibleProvider(
                 "Groq API key не задан; перевод попробует fallback, а Explain требует ключ",
             )
         val settings = settingsRepository.snapshot()
-        val endpoint = settings.baseUrl.trimEnd('/') + "/chat/completions"
+        val endpoint = settings.endpoint()
+            ?: throw TranslationException.Configuration("Некорректный HTTPS base URL")
 
-        val body = JSONObject()
-            .put("model", settings.model)
-            .put(
-                "messages",
-                JSONArray().put(
-                    JSONObject()
-                        .put("role", "user")
-                        .put("content", PromptBuilder.build(request)),
-                ),
-            )
-            .put("reasoning_effort", "none")
-            .put("reasoning_format", "hidden")
-            .put("temperature", if (request.operation == Operation.TRANSLATE) 0.2 else 0.4)
-            .put("max_completion_tokens", if (request.operation == Operation.TRANSLATE) 1024 else 768)
-            .put("stream", false)
+        val body = buildBody(settings, request)
 
         val httpRequest = Request.Builder()
             .url(endpoint)
@@ -58,37 +46,55 @@ class OpenAiCompatibleProvider(
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        client.newCall(httpRequest).execute().use { response ->
-            val responseBody = response.body.string()
-            if (!response.isSuccessful) {
-                val message = runCatching {
-                    JSONObject(responseBody).optJSONObject("error")?.optString("message")
-                }.getOrNull().orEmpty()
-                throw TranslationException.ProviderFailure(
-                    "Groq HTTP ${response.code}${if (message.isBlank()) "" else ": $message"}",
-                )
+        val response = client.newCall(httpRequest).awaitPayload()
+        if (response.code !in 200..299) {
+            val hint = when (response.code) {
+                401, 403 -> "проверьте API key и доступ к модели"
+                429 -> "лимит запросов, повторите позже"
+                400, 404 -> "проверьте модель и base URL"
+                else -> "сервер временно недоступен"
             }
+            throw TranslationException.ProviderFailure("AI HTTP ${response.code}: $hint")
+        }
+        parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}")
+    }
 
-            val text = runCatching {
-                JSONObject(responseBody)
-                    .getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .getString("content")
-                    .trim()
-            }.getOrElse {
-                throw TranslationException.ProviderFailure("Некорректный ответ Groq", it)
+    internal fun buildBody(settings: AppSettings, request: TranslationRequest): JSONObject {
+        val body = JSONObject()
+            .put("model", settings.model)
+            .put("messages", JSONArray().put(JSONObject()
+                .put("role", "user").put("content", PromptBuilder.build(request))))
+            .put("temperature", if (request.operation == Operation.TRANSLATE) 0.2 else 0.4)
+            .put("max_completion_tokens", if (request.operation == Operation.TRANSLATE)
+                (request.text.length * 2 + 256).coerceIn(1024, 4096) else 1024)
+            .put("stream", false)
+        // Groq extensions are only valid for its Qwen models, not arbitrary compatible APIs.
+        if (settings.endpoint()?.host == "api.groq.com" && settings.model.startsWith("qwen/")) {
+            body.put("reasoning_effort", "none").put("reasoning_format", "hidden")
+        }
+        return body
+    }
+
+    internal fun parse(body: String, request: TranslationRequest): TranslationResult {
+        try {
+            val choice = JSONObject(body).getJSONArray("choices").getJSONObject(0)
+            if (choice.optString("finish_reason") == "length") {
+                throw TranslationException.ProviderFailure("Ответ обрезан сервером; выделите меньший фрагмент")
             }
-
-            if (text.isBlank()) {
-                throw TranslationException.ProviderFailure("Groq вернул пустой ответ")
-            }
-
-            TranslationResult(
+            val content = choice.getJSONObject("message").get("content")
+            if (content !is String) throw TranslationException.ProviderFailure("Некорректный ответ AI")
+            val text = content.trim()
+            if (text.isBlank()) throw TranslationException.ProviderFailure("AI вернул пустой ответ")
+            return TranslationResult(
                 outputText = text,
                 providerId = id,
                 operation = request.operation,
             )
+        } catch (e: TranslationException) {
+            throw e
+        } catch (e: Exception) {
+            // JSON exceptions can embed raw server data. Never propagate them to diagnostics/UI.
+            throw TranslationException.ProviderFailure("Некорректный ответ AI")
         }
     }
 

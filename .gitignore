@@ -10,3 +10,11 @@
 .cxx/
 *.jks
 *.keystore
+
+.gradle-bootstrap/
+**/build/
+*.apk
+*.aab
+.env
+.env.*
+secrets.properties

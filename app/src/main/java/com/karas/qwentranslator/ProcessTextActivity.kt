@@ -12,20 +12,20 @@ import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import com.karas.qwentranslator.core.Operation
+import com.karas.qwentranslator.ui.popup.PopupUiState
+import com.karas.qwentranslator.util.Invocation
 import com.karas.qwentranslator.ui.popup.PopupScreen
 import com.karas.qwentranslator.ui.popup.ProcessTextViewModel
-import com.karas.qwentranslator.ui.popup.PopupUiState
 import com.karas.qwentranslator.ui.theme.TranslatorTheme
 import com.karas.qwentranslator.util.InvocationParser
-import com.karas.qwentranslator.util.InvocationSource
 
 class ProcessTextActivity : ComponentActivity() {
-    private val invocation by lazy { InvocationParser.parse(intent) }
+    private var initialInvocation: Invocation? = null
 
     private val viewModel: ProcessTextViewModel by viewModels {
         val app = application as TranslatorApplication
         ProcessTextViewModel.Factory(
-            invocation = requireNotNull(invocation),
+            invocation = requireNotNull(initialInvocation),
             engine = app.container.engine,
             settingsRepository = app.container.settings,
         )
@@ -33,19 +33,22 @@ class ProcessTextActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val input = invocation
+        val input = InvocationParser.parse(intent)
+        setResult(RESULT_CANCELED)
         if (input == null) {
             finish()
             return
         }
 
+        initialInvocation = input
         setContent {
             TranslatorTheme {
+                val currentInput by viewModel.invocation.collectAsStateWithLifecycle()
                 val state by viewModel.state.collectAsStateWithLifecycle()
                 PopupScreen(
-                    sourceText = input.text,
+                    sourceText = currentInput.text,
                     state = state,
-                    canReplace = input.source == InvocationSource.PROCESS_TEXT && !input.readOnly,
+                    canReplace = currentInput.canReplace,
                     onOperation = viewModel::selectOperation,
                     onCopy = ::copy,
                     onReplace = ::replace,
@@ -57,6 +60,14 @@ class ProcessTextActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        setResult(RESULT_CANCELED)
+        val input = InvocationParser.parse(intent)
+        if (input == null) finish() else viewModel.acceptInvocation(input)
+    }
+
     private fun copy(text: String) {
         val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText("translation", text))
@@ -64,11 +75,13 @@ class ProcessTextActivity : ComponentActivity() {
     }
 
     private fun replace(text: String) {
-        val input = invocation ?: return
-        if (input.source != InvocationSource.PROCESS_TEXT || input.readOnly) return
+        val input = viewModel.invocation.value
+        val result = viewModel.state.value as? PopupUiState.Success ?: return
+        if (!input.canReplace || result.operation != Operation.TRANSLATE || result.text != text || text.isBlank()) return
+        val replacement = input.replacementText(text) ?: return
         setResult(
             RESULT_OK,
-            Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, text),
+            Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, replacement),
         )
         finish()
     }
