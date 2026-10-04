@@ -2,7 +2,7 @@ package com.karas.qwentranslator.util
 
 import android.content.Intent
 
-enum class InvocationSource { PROCESS_TEXT, SHARE, TRANSLATE_ACTION }
+enum class InvocationSource { PROCESS_TEXT, SHARE, TRANSLATE_ACTION, TRANSLATION_LINK }
 
 data class Invocation(val text: String, val readOnly: Boolean, val source: InvocationSource) {
     val canReplace: Boolean get() = source == InvocationSource.PROCESS_TEXT && !readOnly
@@ -28,6 +28,9 @@ object InvocationParser {
                 InvocationSource.TRANSLATE_ACTION, intent.type,
                 intent.getCharSequenceExtra(Intent.EXTRA_TEXT), true,
             )
+            Intent.ACTION_VIEW -> intent.data?.let { uri ->
+                TranslationLinkParser.parse(uri.scheme, uri.host, uri.path, uri.getQueryParameter("text"), uri.fragment)
+            }
             else -> null
         }
     } catch (e: RuntimeException) {

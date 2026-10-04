@@ -18,6 +18,7 @@
             android:excludeFromRecents="true"
             android:exported="true"
             android:label="@string/process_text_label"
+            android:windowSoftInputMode="stateAlwaysHidden|adjustResize"
             android:theme="@style/Theme.QwenTranslator.Popup">
 
             <intent-filter>
@@ -35,6 +36,15 @@
             <intent-filter>
                 <action android:name="android.intent.action.TRANSLATE" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!-- Optional Android chooser target for legacy translation links (including ReadEra 2019). -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="http" android:host="translate.google.com" android:path="/" />
+                <data android:scheme="https" />
             </intent-filter>
         </activity>
 
