@@ -10,7 +10,11 @@ data class TranslationRequest(
     val operation: Operation,
     val sourceLanguage: String = "auto",
     val targetLanguage: String = "ru",
-)
+) {
+    companion object {
+        const val MAX_TEXT_LENGTH = 12_000
+    }
+}
 
 data class TranslationResult(
     val outputText: String,

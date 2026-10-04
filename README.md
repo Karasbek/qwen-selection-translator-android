@@ -1,8 +1,8 @@
 # Qwen Selection Translator — Android MVP
 
-Select text in an Android app → **Перевести** → a compact translucent popup that starts translation automatically. Android 8.0+ (minSdk 26).
+Select text in a supporting Android app → **Qwen перевод** → a compact translucent popup that starts translation automatically. Android 8.0+ (minSdk 26).
 
-The existing single-module Kotlin/Compose project is preserved. Both `ACTION_PROCESS_TEXT` and Share (`ACTION_SEND text/plain`) use the same Invocation → ViewModel → TranslatorEngine → provider flow. No Accessibility Service, overlay permission, clipboard monitoring, or runtime permissions are required.
+The existing single-module Kotlin/Compose project is preserved. `ACTION_PROCESS_TEXT`, Share (`ACTION_SEND text/plain`), and `ACTION_TRANSLATE` use the same Invocation → ViewModel → TranslatorEngine → provider flow. An optional Quick Settings tile translates explicitly copied text through the same popup. No Accessibility Service, overlay permission, clipboard monitoring, or runtime permissions are required.
 
 ## Current functionality
 
@@ -22,11 +22,15 @@ Defaults are centralized in `AppSettings`:
 - base URL: `https://api.groq.com/openai/v1`;
 - model: `qwen/qwen3.8-27b`.
 
-Groq/Qwen requests disable reasoning with `reasoning_effort=none`, `reasoning_format=hidden`. These extensions are omitted for other models/hosts. Model and Chat Completions contract were checked against [Groq model documentation](https://console.groq.com/docs/model/qwen/qwen3.8-27b) and [API reference](https://console.groq.com/docs/api-reference) on 2026-10-04. No authenticated live Groq call was performed.
+Groq/Qwen requests disable reasoning with `reasoning_effort=none`, `reasoning_format=hidden`. These extensions are omitted for other models/hosts. Model and Chat Completions contract were checked against [Groq model documentation](https://console.groq.com/docs/model/qwen/qwen3.8-27b) and [API reference](https://console.groq.com/docs/api-reference) on 2026-10-04. Live Translate and Explain were subsequently verified on the connected HONOR tablet using its existing user-configured key.
 
 Open **Qwen Перевод**, enter your API key and save. Empty key removes the stored credential. Base URL must use HTTPS without embedded credentials, query or fragment. Configure only a service you trust: selected text and the key are sent to that host. Translate falls back to Google when AI fails; Explain does not.
 
-In a supporting app, select text → **Перевести** (possibly in selection-menu overflow). Otherwise use Share → **Перевести**. After changing settings from the popup, return with Back and tap Retry, or switch the operation, to use the new settings.
+In a supporting app, select text → **Qwen перевод**. Open **⋮** and **scroll the action list down** if necessary: on the tested HONOR tablet, several handlers appear above Qwen. Otherwise use Share → **Qwen перевод**; Huawei's Share sheet also has multiple pages (swipe left).
+
+For a quicker alternative in apps with custom menus: add **Qwen перевод** through Quick Settings → Edit, then **Copy → open Quick Settings → Qwen перевод**. The tile opens a foreground window before reading the first clipboard item's plain text, once per click. It does not read URI/image content or listen for clipboard changes. Blank/nontext and oversized clipboard contents show a message without a request. Clipboard/Share/TRANSLATE never offer Replace.
+
+On HONOR KRJ-W09, stock selection menus work; the tested Huawei Browser and old ReadEra menus have app-specific limitations. ReadEra's Translate explicitly opens Yandex; its Share flow and the Qwen tile work. See [HONOR_VERIFICATION.md](HONOR_VERIFICATION.md) for evidence and reproduction. After changing settings from the popup, return with Back and tap Retry, or switch the operation, to use the new settings.
 
 ## Build and install
 
@@ -53,7 +57,7 @@ See [VERIFICATION.md](VERIFICATION.md) for actual results and the phone checklis
 
 ## Remaining limitations
 
-- No connected device during this session: installation, selection toolbar visibility, visual layout, clipboard, result delivery and Keystore persistence need phone verification.
+- Tablet runtime verification passed for stock selection, live AI translation/Explain, Copy/paste, editable Replace, readonly/Share restrictions, tile and rotation. Samsung was not connected for a repeat check; standard PROCESS_TEXT/result semantics are preserved.
 - Google web fallback is unofficial. A live probe returned HTTP 429 in this environment; successful live fallback translation remains unverified. Failures are bounded and shown to the user.
 - AI source language is displayed as `авто`; Google may report a detected code.
 - Long text can exceed fallback URL or provider quotas even below the app's input limit. Truncated AI responses are rejected rather than offered as complete translations.

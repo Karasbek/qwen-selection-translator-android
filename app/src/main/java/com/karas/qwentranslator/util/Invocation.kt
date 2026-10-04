@@ -2,7 +2,7 @@ package com.karas.qwentranslator.util
 
 import android.content.Intent
 
-enum class InvocationSource { PROCESS_TEXT, SHARE }
+enum class InvocationSource { PROCESS_TEXT, SHARE, TRANSLATE_ACTION }
 
 data class Invocation(val text: String, val readOnly: Boolean, val source: InvocationSource) {
     val canReplace: Boolean get() = source == InvocationSource.PROCESS_TEXT && !readOnly
@@ -24,6 +24,10 @@ object InvocationParser {
             Intent.ACTION_SEND -> fromValues(
                 InvocationSource.SHARE, intent.type, intent.getCharSequenceExtra(Intent.EXTRA_TEXT), true,
             )
+            Intent.ACTION_TRANSLATE -> fromValues(
+                InvocationSource.TRANSLATE_ACTION, intent.type,
+                intent.getCharSequenceExtra(Intent.EXTRA_TEXT), true,
+            )
             else -> null
         }
     } catch (e: RuntimeException) {
@@ -31,10 +35,11 @@ object InvocationParser {
         null
     }
 
-    /** Android-free validation shared by both adapters; preserve whitespace in editable selections. */
+    /** Android-free validation shared by entry points; preserve whitespace in editable selections. */
     fun fromValues(source: InvocationSource, mimeType: String?, text: CharSequence?, readOnly: Boolean = true): Invocation? {
-        if (mimeType?.substringBefore(';')?.trim()?.lowercase() != "text/plain") return null
+        if (!(source == InvocationSource.TRANSLATE_ACTION && mimeType == null) &&
+            mimeType?.substringBefore(';')?.trim()?.lowercase() != "text/plain") return null
         val value = text?.toString()?.takeIf { it.isNotBlank() } ?: return null
-        return Invocation(value, readOnly || source == InvocationSource.SHARE, source)
+        return Invocation(value, readOnly || source != InvocationSource.PROCESS_TEXT, source)
     }
 }

@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Qwen Перевод</string>
-    <string name="process_text_label">Перевести</string>
+    <string name="process_text_label">Qwen перевод</string>
+    <string name="copy_text_first">Сначала скопируй текст для перевода.</string>
+    <string name="clipboard_text_too_long">Текст слишком длинный. Скопируй фрагмент до 12 000 символов.</string>
 </resources>

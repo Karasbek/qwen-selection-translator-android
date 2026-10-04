@@ -1,37 +1,28 @@
 # Verification — 2026-10-04
 
-## Environment
+## Build environment and final result
 
-- Working directory: `/data/qwen-selection-translator-android`.
-- System Java/Android Studio JBR: OpenJDK 25.0.2. Builds verified using OpenJDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk`).
-- Official Gradle wrapper 9.4.1, AGP 9.2.0, Kotlin/Compose plugin 2.2.10.
-- Android SDK: `/home/karasik/Android/Sdk`, Platform 37.0 / Build Tools 36.0.0. Local SDK path is ignored by Git.
-- `ANDROID_HOME` was set; `ANDROID_SDK_ROOT` unset. `adb` is installed.
-- Network/cache access and adb were run outside restricted sandbox. No system package installation or changes to another project were needed.
+- Project: `/data/qwen-selection-translator-android`; baseline working commit `16b3f97` preserved.
+- Builds: OpenJDK 21 (`JAVA_HOME=/usr/lib/jvm/java-21-openjdk`), official Gradle wrapper 9.4.1, AGP 9.2.0, Kotlin/Compose plugin 2.2.10.
+- SDK: `/home/karasik/Android/Sdk`, Platform 37.0 / Build Tools 36.0.0; local SDK path ignored by Git.
+- Existing tool/dependency versions retained. No other repository or system package was changed.
 
-## Passed
-
-Commands run with the JDK above:
+Final commands, including a rerun after restoring the temporary diagnostic applicationId:
 
 ```bash
-java -version
-./gradlew --version
-./gradlew testDebugUnitTest
-./gradlew assembleDebug
-./gradlew lintDebug
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-- Unit tests: **39 passed, 0 failed, 0 skipped**. Coverage includes Translate/Explain prompts, configured request JSON, Unicode/multiline parsing, missing/empty/null/malformed/truncated AI output, Google segment parsing, engine fallback/cancellation/blank and huge input, HTTP status/timeouts/body limits/socket cancellation, stale ViewModel responses and new invocation, settings failures/validation/redaction, readonly/MIME/selection whitespace and replacement boundaries.
-- Tests use fakes/interceptors/local MockWebServer; no Groq credentials or external network calls required.
-- `assembleDebug`: **BUILD SUCCESSFUL**, debug APK created.
-- `lintDebug`: **BUILD SUCCESSFUL**, **0 errors / 12 warnings**. Warnings: deliberate synchronous SharedPreferences commits on IO and KTX style suggestions, unchanged targetSdk 36, newer dependency/Gradle versions available, release resource shrinking suggestion. No lint baseline or broad disabling of checks.
-- Official Gradle distribution checksum verified: `2ab2958f2a1e51120c326cad6f385153bb11ee93b3c216c5fccebfdfbb7ec6cb`.
-- Wrapper JAR checksum matches Gradle's published value: `55243ef57851f12b070ad14f7f5bb8302daceeebc5bce5ece5fa6edb23e1145c`.
-- `aapt2 dump xmltree`: actual APK contains exported PROCESS_TEXT and SEND filters, DEFAULT category and text/plain MIME; backup references are present. No Accessibility/overlay service/permissions. INTERNET is present (AndroidX also contributes its internal signature permission).
-- Backup resources exclude `translator_secrets.xml` for legacy backup, cloud backup and device transfer.
-- `apksigner verify --verbose`: verifies, APK Signature Scheme v2, one signer.
-- `git diff --check`: clean. Generated caches/APK/local.properties are ignored.
-- Source audit: no HTTP in UI/Activity, main-thread secret IO, selected-text/key logging, hard-coded credentials or uncancelled blocking HTTP execution.
+| Check | Result |
+| --- | --- |
+| testDebugUnitTest | 40 passed, 0 failures/errors/skipped |
+| assembleDebug | BUILD SUCCESSFUL, APK created |
+| lintDebug | BUILD SUCCESSFUL, 0 errors / 12 warnings |
+| git diff --check | Clean |
+
+The 39 baseline tests are retained, plus ACTION_TRANSLATE input/readonly/blank/MIME coverage. Existing tests cover prompts, Translate/Explain, JSON/malformed/empty/truncated responses, fallback/cancellation, bounded HTTP/timeouts, Invocation/Replace and stale ViewModel/settings errors. They use fakes and local MockWebServer; no external calls or keys are required.
+
+Lint warnings remain the baseline nonblocking warnings (synchronous preferences commit on IO, KTX suggestions, target/dependency version suggestions and release shrinking). The old TileService Intent launch API is narrowly suppressed **only for compatibility below API 34**, where the replacement PendingIntent overload does not exist; API 34+ takes the new branch. No lint baseline or blanket suppression was added.
 
 APK:
 
@@ -39,48 +30,44 @@ APK:
 /data/qwen-selection-translator-android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Reports:
+Reports: `app/build/reports/tests/testDebugUnitTest/index.html`, `app/build/test-results/testDebugUnitTest/TEST-*.xml`, `app/build/reports/lint-results-debug.html` and `lint-results-debug.txt`.
 
-- `app/build/reports/tests/testDebugUnitTest/index.html`
-- `app/build/test-results/testDebugUnitTest/TEST-*.xml`
-- `app/build/reports/lint-results-debug.html`
-- `app/build/reports/lint-results-debug.txt`
+## USB tablet runtime
 
-## External API verification limits
+Device: HUAWEI / HONOR **KRJ-W09**, HWKRJ, Android **10 / API 29**, build **KRJ-W09 3.1.1.267(C10E1R1P1)**, EMUI property **EmotionUI_10.1.1**, Magic property **3.1.1**.
 
-Groq official [model documentation](https://console.groq.com/docs/model/qwen/qwen3.8-27b), [API reference](https://console.groq.com/docs/api-reference) and [reasoning documentation](https://console.groq.com/docs/reasoning) were checked. They document qwen/qwen3.8-27b, POST /openai/v1/chat/completions, message content, max_completion_tokens, reasoning_effort=none and reasoning_format=hidden.
+[HONOR_VERIFICATION.md](HONOR_VERIFICATION.md) contains the metadata comparison, experiments, intent logs, host-specific limits and reproduction steps.
 
-No authenticated live Groq request was made: no user key was supplied. Provider contract/flow passed mocked tests. An unauthenticated, nonsecret Google web translation probe returned HTTP 429; live translation through this unofficial fallback was not verified successfully. The app reports HTTP failures and stops after its finite provider chain.
+Passed on the real device:
 
-## Phone verification still required
+- Repeated `adb install -r` without clearing main app data; PackageManager resolves launcher and enumerates PROCESS_TEXT, SEND and TRANSLATE to ProcessTextActivity.
+- Native TextView/EditText selection **⋮ → scroll down → Qwen перевод**. A separate temporary package also selected and launched the main Qwen app, proving cross-package eligibility.
+- Live Groq Translate and Explain with the already configured user key; actual qwen/qwen3.8-27b / api.groq.com shown. Hello translated to Здравствуйте; Explain returned a simple English explanation.
+- Real host result delivery: editable Hello selection became Здравствуйте, surrounding sentence unchanged. Readonly selection omits Replace.
+- Copy followed by Paste inserts the translation in a test EditText.
+- ReadEra Share → second Huawei Share page → Qwen перевод opens the same popup, translates automatically, omits Replace.
+- Quick Settings tile added and physically tapped through adb input; foreground focus allows its one-shot clipboard read, then the same popup translates copied text, omitting Replace.
+- MainActivity launch, Back/Close returning to caller, portrait → landscape → portrait popup/result without a crash; rotation settings restored.
+- Missing PROCESS_TEXT extra closes safely. Share input of 12,001 characters displays the size error. Untyped ACTION_TRANSLATE reads EXTRA_TEXT and stays readonly.
+- Existing key/settings remain usable across reinstalls/app recreation. No API key was read from preferences, printed, changed or inserted into logs/screenshots.
 
-`adb devices -l` returned an empty device list. No installation, actual selection menu, screenshot/UI automation or instrumented tests were performed. Source/unit/APK checks do not establish those runtime results.
+No FATAL EXCEPTION from the tested app was observed. UI/runtime checks were performed with harmless fixtures; no messages were sent. The temporary diagnostic package was removed, and the normal package is installed. The optional Qwen tile remains available.
 
-Install without clearing existing data:
+## Integration and security checks
 
-```bash
-adb devices -l
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+Baseline verified wrapper distribution and JAR SHA-256 checks remain unchanged. Manifest/APK inspection confirms exported standard PROCESS_TEXT/SEND filters with DEFAULT + text/plain, plus TRANSLATE without MIME. Standard launch/result behavior and excludeFromRecents remain unchanged.
 
-Then check:
+The tile service requires the system signature BIND_QUICK_SETTINGS_TILE permission; its clipboard activity is **not exported**. This is not an application runtime permission. There is no Accessibility Service, SYSTEM_ALERT_WINDOW, foreground/background clipboard listener or screen reader. TileService itself does not access clipboard data. Image/URI clipboard content is not coerced or read; blank/nontext/oversized input is guarded.
 
-1. Launcher opens settings in light/dark theme; keyboard and Save remain accessible. Set language/model/base URL, enter a user key, save, restart and verify settings/key persistence. Empty key deletes it. Invalid URL shows an error without a crash.
-2. In Chrome or another app with standard Android selection, select text and find **Перевести**, possibly in overflow. Confirm popup opens over the source app and translates automatically using Groq.
-3. Verify source/result, language and actual model/host; Copy then paste into a test field.
-4. English selection → Explain gives simple English; switching tabs quickly cannot show the previous tab's late result. Retry refreshes after changing settings.
-5. From a plain editable field, select text → Translate → Replace. Only the selected text changes; surrounding whitespace remains. This must be started by the host for a result, not merely with adb am start.
-6. Readonly selection hides Replace. Share → Перевести uses the same popup and also hides Replace.
-7. Back, Close and outside tap return to the caller without replacing text. Open Settings from popup and Back to the retained popup.
-8. Rotate while loading/success/error; no crash or duplicate request from recomposition. Open a different selection; no stale original text/result.
-9. Multiline, emoji/non-Latin text, long text, large font and landscape: scrolling/wrapping work, Close is reachable. Above 12,000 UTF-16 characters gives a readable limit error.
-10. Offline, invalid key/model, timeout and rate limit produce readable errors; Translate makes at most one AI plus one fallback attempt, Explain stays AI-only. Google success must be checked on the device/network separately.
-11. Keystore/device-specific: save twice with the same test key, confirm IV/ciphertext change without printing the key; ciphertext is not plaintext. Backup/transfer should restore ordinary settings but require re-entering the API key. Do not wipe the user's data to test this.
+Keystore AES-GCM storage and backup exclusions remain intact. Settings use FLAG_SECURE and password masking. Full save-twice IV comparison, backup/restore, lockscreen and newer Android behavior were not experimentally validated in this follow-up.
 
-Optional adb diagnostics with harmless sample text (these do not prove host menu or Replace result delivery):
+## Known limits and remaining checks
 
-```bash
-adb shell cmd package query-activities --brief -a android.intent.action.PROCESS_TEXT -t text/plain
-adb shell am start -a android.intent.action.PROCESS_TEXT -t text/plain -n com.karas.qwentranslator/.ProcessTextActivity --es android.intent.extra.PROCESS_TEXT 'Hello world' --ez android.intent.extra.PROCESS_TEXT_READONLY true
-adb shell am start -a android.intent.action.SEND -t text/plain -n com.karas.qwentranslator/.ProcessTextActivity --es android.intent.extra.TEXT 'Hello world'
-```
+- **Not a general HONOR PROCESS_TEXT ban:** stock selection menus show and launch Qwen from another package. Their overflow is scrollable, so first-row visibility is insufficient.
+- Huawei Browser's tested read-only menu does not offer third-party handlers. Installed ReadEra Premium 19.12.27+1120 explicitly sends its Translate action to Yandex. Adding TRANSLATE or changing app defaults cannot redirect an explicit foreign component. Qwen cannot force other apps to rebuild private menus through public Android APIs.
+- ReadEra Share and Copy → Qwen tile are verified alternatives. The old ReadEra version's general settings did not expose a translator choice; newer versions were not installed/tested.
+- Samsung repeat run, Telegram/other app menus, complete Huawei Notes selection tests, API 34+ tile/lockscreen and empty/nontext tile behavior remain phone checks.
+- Longer Unicode/multiline layouts, rapid user interactions, offline/timeout/rate-limit and backup/restore remain broader manual checks; relevant domain/network/lifecycle paths have unit coverage.
+- Unofficial Google fallback live success remains unverified. The earlier unauthenticated probe returned HTTP 429. AI live success does not establish Google reliability.
+
+Groq contract references: [model](https://console.groq.com/docs/model/qwen/qwen3.8-27b), [API](https://console.groq.com/docs/api-reference), [reasoning](https://console.groq.com/docs/reasoning). Authenticated calls in this follow-up used only the tablet's existing app configuration, with no credential exposure.

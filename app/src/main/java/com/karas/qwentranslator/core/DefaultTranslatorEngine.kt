@@ -49,6 +49,6 @@ class DefaultTranslatorEngine(
     }
 
     companion object {
-        const val MAX_INPUT_CHARACTERS = 12_000
+        const val MAX_INPUT_CHARACTERS = TranslationRequest.MAX_TEXT_LENGTH
     }
 }

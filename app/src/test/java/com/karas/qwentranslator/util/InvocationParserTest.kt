@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class InvocationParserTest {
+    @Test fun translateActionAcceptsUntypedTextAndNeverAllowsReplace() {
+        val invocation = InvocationParser.fromValues(InvocationSource.TRANSLATE_ACTION, null, "Hello", false)!!
+        assertEquals("Hello", invocation.text)
+        assertFalse(invocation.canReplace)
+        assertNull(InvocationParser.fromValues(InvocationSource.TRANSLATE_ACTION, "image/png", "Hello"))
+        assertNull(InvocationParser.fromValues(InvocationSource.TRANSLATE_ACTION, null, " \n"))
+    }
+
     @Test fun preservesUnicodeMultilineAndSelectionWhitespace() {
         val text = "  Hello\n世界 👋  "
         val input = InvocationParser.fromValues(InvocationSource.PROCESS_TEXT, "text/plain", text, false)!!

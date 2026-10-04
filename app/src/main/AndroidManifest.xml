@@ -31,7 +31,30 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="text/plain" />
             </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.TRANSLATE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <activity
+            android:name=".ClipboardInvocationActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.QwenTranslator.Popup" />
+
+        <service
+            android:name=".ClipboardTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_translate"
+            android:label="@string/process_text_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
 
         <activity
             android:name=".MainActivity"

@@ -1,0 +1,5 @@
+<resources>
+    <string name="selection_probe_title" translatable="false">Qwen selection diagnostic — stock Android widgets</string>
+    <string name="selection_probe_readonly" translatable="false">Hello world. This is a harmless translation test.</string>
+    <string name="selection_probe_editable" translatable="false">Hello world. This is an editable translation test.</string>
+</resources>
