@@ -49,10 +49,11 @@ class OpenAiCompatibleProviderTest {
         assertFalse(body.has("reasoning_format"))
     }
 
-    @Test fun explainRequestUsesOriginalLanguagePrompt() {
+    @Test fun explainRequestDefaultsToSimpleEnglishPrompt() {
         val body = provider().buildBody(AppSettings(), request.copy(operation = Operation.EXPLAIN))
         val prompt = body.getJSONArray("messages").getJSONObject(0).getString("content")
         assertTrue(prompt.contains("simple English"))
+        assertTrue(prompt.contains("Write only in English"))
         assertFalse(prompt.contains("Translate the text below"))
     }
 

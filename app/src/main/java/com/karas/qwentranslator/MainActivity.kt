@@ -32,6 +32,10 @@ class MainActivity : ComponentActivity() {
                     SettingsScreen(
                         state = state,
                         onTargetChange = viewModel::updateTarget,
+                        onSourceChange = viewModel::updateSource,
+                        onExplanationChange = viewModel::updateExplanation,
+                        onBlockEnabled = viewModel::setBlockEnabled,
+                        onMoveBlock = viewModel::moveBlock,
                         onBaseUrlChange = viewModel::updateBaseUrl,
                         onModelChange = viewModel::updateModel,
                         onApiKeyChange = viewModel::updateApiKey,

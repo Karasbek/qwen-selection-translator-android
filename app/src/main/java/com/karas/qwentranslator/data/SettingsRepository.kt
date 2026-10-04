@@ -1,45 +1,71 @@
 package com.karas.qwentranslator.data
 
 import android.content.Context
-import androidx.datastore.preferences.core.emptyPreferences
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import com.karas.qwentranslator.core.*
 import java.io.IOException
-import kotlinx.coroutines.flow.catch
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.*
 
 private val Context.settingsDataStore by preferencesDataStore(name = "translator_settings")
 
-class SettingsRepository(private val context: Context) : SettingsStore {
-    private val defaults = AppSettings()
-    private object Keys {
-        val targetLanguage = stringPreferencesKey("target_language")
-        val baseUrl = stringPreferencesKey("base_url")
-        val model = stringPreferencesKey("model")
-    }
+class SettingsRepository(private val store: DataStore<Preferences>) : SettingsStore {
+    constructor(context: Context) : this(context.settingsDataStore)
 
-    val settings: Flow<AppSettings> = context.settingsDataStore.data.catch { error ->
+    val settings: Flow<AppSettings> = store.data.catch { error ->
         if (error is IOException) emit(emptyPreferences()) else throw error
-    }.map { prefs ->
-        AppSettings(
-            targetLanguage = prefs[Keys.targetLanguage] ?: defaults.targetLanguage,
-            baseUrl = prefs[Keys.baseUrl] ?: defaults.baseUrl,
-            model = prefs[Keys.model] ?: defaults.model,
-        )
-    }
+    }.map(SettingsPreferences::decode)
 
     override suspend fun snapshot(): AppSettings = settings.first()
 
     override suspend fun save(settings: AppSettings) {
         val normalized = settings.normalized()
         require(normalized.validationError() == null) { "Некорректные настройки" }
-        context.settingsDataStore.edit { prefs ->
-            prefs[Keys.targetLanguage] = normalized.targetLanguage
-            prefs[Keys.baseUrl] = normalized.baseUrl
-            prefs[Keys.model] = normalized.model
-        }
+        store.edit { SettingsPreferences.encode(normalized, it) }
+    }
+}
+
+/** Stable enum names; old installs and unknown future values receive safe defaults. No secrets here. */
+internal object SettingsPreferences {
+    private val target = stringPreferencesKey("target_language")
+    private val source = stringPreferencesKey("source_language")
+    private val base = stringPreferencesKey("base_url")
+    private val model = stringPreferencesKey("model")
+    private val order = stringPreferencesKey("result_order")
+    private val enabled = stringSetPreferencesKey("enabled_blocks")
+    private val language = stringPreferencesKey("explanation_language")
+    private val detail = stringPreferencesKey("explanation_detail")
+    private val examples = booleanPreferencesKey("explanation_examples")
+    private inline fun <reified T : Enum<T>> value(name: String?): T? = enumValues<T>().firstOrNull { it.name == name }
+
+    fun decode(prefs: Preferences): AppSettings {
+        val defaults = AppSettings()
+        val blocks = prefs[enabled]?.mapNotNull { value<ResultBlock>(it) }?.toSet()
+        return AppSettings(
+            targetLanguage = prefs[target] ?: defaults.targetLanguage,
+            baseUrl = prefs[base] ?: defaults.baseUrl,
+            model = prefs[model] ?: defaults.model,
+            sourceLanguage = prefs[source] ?: defaults.sourceLanguage,
+            resultOrder = prefs[order]?.split(',')?.mapNotNull { value<ResultBlock>(it) } ?: defaults.resultOrder,
+            enabledBlocks = blocks?.takeIf { it.isNotEmpty() } ?: defaults.enabledBlocks,
+            explanation = ExplanationOptions(
+                language = value<ExplanationLanguage>(prefs[language]) ?: defaults.explanation.language,
+                detail = value<ExplanationDetail>(prefs[detail]) ?: defaults.explanation.detail,
+                examples = prefs[examples] ?: defaults.explanation.examples,
+            ),
+        ).normalized()
+    }
+
+    fun encode(settings: AppSettings, prefs: MutablePreferences) {
+        prefs[target] = settings.targetLanguage
+        prefs[source] = settings.sourceLanguage
+        prefs[base] = settings.baseUrl
+        prefs[model] = settings.model
+        prefs[order] = settings.resultOrder.joinToString(",") { it.name }
+        prefs[enabled] = settings.enabledBlocks.map { it.name }.toSet()
+        prefs[language] = settings.explanation.language.name
+        prefs[detail] = settings.explanation.detail.name
+        prefs[examples] = settings.explanation.examples
     }
 }

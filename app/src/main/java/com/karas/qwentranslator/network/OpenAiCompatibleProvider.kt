@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.network
 
+import com.karas.qwentranslator.core.FailureKind
 import com.karas.qwentranslator.core.Operation
 import com.karas.qwentranslator.core.PromptBuilder
 import com.karas.qwentranslator.core.TranslationException
@@ -48,13 +49,9 @@ class OpenAiCompatibleProvider(
 
         val response = client.newCall(httpRequest).awaitPayload()
         if (response.code !in 200..299) {
-            val hint = when (response.code) {
-                401, 403 -> "проверьте API key и доступ к модели"
-                429 -> "лимит запросов, повторите позже"
-                400, 404 -> "проверьте модель и base URL"
-                else -> "сервер временно недоступен"
-            }
-            throw TranslationException.ProviderFailure("AI HTTP ${response.code}: $hint")
+            throw TranslationException.ProviderFailure("AI HTTP ${response.code}",
+                kind = HttpFailureMapping.status(response.code),
+                provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
         }
         parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}")
     }
@@ -79,12 +76,12 @@ class OpenAiCompatibleProvider(
         try {
             val choice = JSONObject(body).getJSONArray("choices").getJSONObject(0)
             if (choice.optString("finish_reason") == "length") {
-                throw TranslationException.ProviderFailure("Ответ обрезан сервером; выделите меньший фрагмент")
+                throw TranslationException.ProviderFailure("Ответ обрезан сервером; выделите меньший фрагмент", kind = FailureKind.MALFORMED_RESPONSE)
             }
             val content = choice.getJSONObject("message").get("content")
-            if (content !is String) throw TranslationException.ProviderFailure("Некорректный ответ AI")
+            if (content !is String) throw TranslationException.ProviderFailure("Некорректный ответ AI", kind = FailureKind.MALFORMED_RESPONSE)
             val text = content.trim()
-            if (text.isBlank()) throw TranslationException.ProviderFailure("AI вернул пустой ответ")
+            if (text.isBlank()) throw TranslationException.ProviderFailure("AI вернул пустой ответ", kind = FailureKind.MALFORMED_RESPONSE)
             return TranslationResult(
                 outputText = text,
                 providerId = id,
@@ -94,7 +91,7 @@ class OpenAiCompatibleProvider(
             throw e
         } catch (e: Exception) {
             // JSON exceptions can embed raw server data. Never propagate them to diagnostics/UI.
-            throw TranslationException.ProviderFailure("Некорректный ответ AI")
+            throw TranslationException.ProviderFailure("Некорректный ответ AI", kind = FailureKind.MALFORMED_RESPONSE)
         }
     }
 

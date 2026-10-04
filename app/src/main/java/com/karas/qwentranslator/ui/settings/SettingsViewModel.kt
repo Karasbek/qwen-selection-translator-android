@@ -3,6 +3,7 @@ package com.karas.qwentranslator.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.karas.qwentranslator.core.*
 import com.karas.qwentranslator.data.AppSettings
 import com.karas.qwentranslator.data.ApiKeyStore
 import com.karas.qwentranslator.data.SettingsStore
@@ -19,11 +20,16 @@ data class SettingsUiState(
     val baseUrl: String = AppSettings().baseUrl,
     val model: String = AppSettings().model,
     val apiKey: String = "",
+    val sourceLanguage: String = AppSettings().sourceLanguage,
+    val resultOrder: List<ResultBlock> = ResultBlock.defaultOrder,
+    val enabledBlocks: Set<ResultBlock> = ResultBlock.defaultOrder.toSet(),
+    val explanation: ExplanationOptions = ExplanationOptions(),
     val saved: Boolean = false,
     val loading: Boolean = true,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
+    fun settings() = AppSettings(targetLanguage, baseUrl, model, sourceLanguage, resultOrder, enabledBlocks, explanation)
     override fun toString(): String = "SettingsUiState(loading=$loading, saving=$saving, saved=$saved, apiKey=<redacted>)"
 }
 
@@ -43,6 +49,10 @@ class SettingsViewModel(
                         targetLanguage = settings.targetLanguage,
                         baseUrl = settings.baseUrl,
                         model = settings.model,
+                        sourceLanguage = settings.sourceLanguage,
+                        resultOrder = settings.resultOrder,
+                        enabledBlocks = settings.enabledBlocks,
+                        explanation = settings.explanation,
                         apiKey = secretStore.getApiKey().orEmpty(),
                         loading = false,
                     )
@@ -61,10 +71,27 @@ class SettingsViewModel(
     fun updateModel(value: String) = mutate { copy(model = value, saved = false, error = null) }
     fun updateApiKey(value: String) = mutate { copy(apiKey = value, saved = false, error = null) }
 
+    fun updateSource(value: String) = mutate { copy(sourceLanguage = value, saved = false, error = null) }
+    fun updateExplanation(value: ExplanationOptions) = mutate { copy(explanation = value, saved = false, error = null) }
+    fun setBlockEnabled(block: ResultBlock, enabled: Boolean) = mutate {
+        if (!enabled && enabledBlocks == setOf(block)) copy(error = "Оставьте хотя бы один результат включённым")
+        else copy(enabledBlocks = if (enabled) enabledBlocks + block else enabledBlocks - block, saved = false, error = null)
+    }
+    fun moveBlock(block: ResultBlock, direction: Int) = mutate {
+        val index = resultOrder.indexOf(block)
+        val destination = index + direction.coerceIn(-1, 1)
+        if (index < 0 || destination !in resultOrder.indices) this else {
+            val order = resultOrder.toMutableList()
+            order[index] = order[destination]
+            order[destination] = block
+            copy(resultOrder = order, saved = false, error = null)
+        }
+    }
+
     fun save() {
         val snapshot = _state.value
         if (snapshot.loading || snapshot.saving) return
-        val settings = AppSettings(snapshot.targetLanguage, snapshot.baseUrl, snapshot.model).normalized()
+        val settings = snapshot.settings().normalized()
         val error = settings.validationError() ?: if (snapshot.apiKey.trim().any { it.isISOControl() } || snapshot.apiKey.length > 4096)
             "Некорректный API key" else null
         if (error != null) {
@@ -82,6 +109,8 @@ class SettingsViewModel(
                     targetLanguage = settings.targetLanguage,
                     baseUrl = settings.baseUrl,
                     model = settings.model,
+                    sourceLanguage = settings.sourceLanguage,
+                    resultOrder = settings.resultOrder,
                     saving = false, saved = true,
                 )
             } catch (e: CancellationException) {

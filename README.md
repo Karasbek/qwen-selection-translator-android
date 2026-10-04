@@ -1,67 +1,64 @@
 # Qwen Selection Translator — Android MVP
 
-Select text in a supporting Android app → **Qwen перевод** → a compact translucent popup that starts translation automatically. Android 8.0+ (minSdk 26).
+Select foreign text → **Qwen перевод** → a compact popup with **Explanation first, Translation second**. Both enabled results start automatically and independently. Android 8.0+ (minSdk 26).
 
-The existing single-module Kotlin/Compose project is preserved. `ACTION_PROCESS_TEXT`, Share (`ACTION_SEND text/plain`), and `ACTION_TRANSLATE` use the same Invocation → ViewModel → TranslatorEngine → provider flow. An optional Quick Settings tile translates explicitly copied text through the same popup. No Accessibility Service, overlay permission, clipboard monitoring, or runtime permissions are required.
+One Kotlin/Compose module. PROCESS_TEXT, SEND, TRANSLATE and `translate.google.com` translation links all retain the same Invocation → popup ViewModel → TranslatorEngine → provider flow. No Accessibility, overlay permission or clipboard monitoring.
 
-## Current functionality
+## Reading popup
 
-- Translate through configured Qwen/Groq, then one best-effort Google web fallback attempt.
-- Explain in the selected text's language; English text is explained in simple English. Requires an AI API key.
-- Loading, readable error/Retry, source/target language and actual AI model/host or fallback provider information.
-- Copy, Close/Back, and Replace only for editable PROCESS_TEXT translation results. Replace preserves surrounding selection whitespace and returns `RESULT_OK` / `EXTRA_PROCESS_TEXT`.
-- Scrollable popup and source text; input above 12,000 UTF-16 characters is rejected with a readable error, not sent/truncated for translation.
-- Target language, model and HTTPS base URL in Preferences DataStore; API key encrypted separately with Android Keystore AES-256-GCM, fresh IV for every save.
-- Credentials excluded from cloud backup and device transfer. Settings screen blocks screenshots/recents capture and masks the API key.
+- Selected text and a compact source → target language line at the top; Settings and provider information under ⋮.
+- Separate explanation/translation cards, each with loading, success or safe error and local Retry. One failed request does not hide the other result.
+- Copy belongs to its card. Replace uses only a successful Translation for editable PROCESS_TEXT, preserving selection-edge whitespace and Android result delivery. Share, TRANSLATE and translation links never allow replacement.
+- Source text and results scroll; Close stays accessible. Popup is bounded by the available viewport and 620dp width / 640dp height caps. Existing keyboard-hiding window configuration is retained.
 
-## Configuration
+## Settings
 
-Defaults are centralized in `AppSettings`:
+Save changes, then return to the popup: changed settings refresh its enabled results. Ordinary resumes and recompositions do not repeat requests.
 
-- target language: `ru`;
-- base URL: `https://api.groq.com/openai/v1`;
-- model: `qwen/qwen3.8-27b`.
+| Setting | Default |
+| --- | --- |
+| Result order | Explanation → Translation |
+| Enabled results | Both; the last enabled block cannot be switched off |
+| Explanation language | English |
+| Detail / examples | Simple / at most one short example |
+| Translation languages | Auto → Russian (`ru`) |
+| Model | `qwen/qwen3.8-27b` |
+| Base URL | `https://api.groq.com/openai/v1` |
 
-Groq/Qwen requests disable reasoning with `reasoning_effort=none`, `reasoning_format=hidden`. These extensions are omitted for other models/hosts. Model and Chat Completions contract were checked against [Groq model documentation](https://console.groq.com/docs/model/qwen/qwen3.8-27b) and [API reference](https://console.groq.com/docs/api-reference) on 2026-10-04. Live Translate and Explain were subsequently verified on the connected HONOR tablet using its existing user-configured key.
+Explanation language (English / same as source / Russian), detail (Simple / Normal / Detailed) and examples affect Android-free engine request options and the actual prompt. Translation remains a separate operation. Move ↑/↓ controls change the saved order without additional libraries.
 
-Open **Qwen Перевод**, enter your API key and save. Empty key removes the stored credential. Base URL must use HTTPS without embedded credentials, query or fragment. Configure only a service you trust: selected text and the key are sent to that host. Translate falls back to Google when AI fails; Explain does not.
+Enter your own API key in Settings. It remains encrypted with Android Keystore AES-GCM separately from Preferences DataStore; credentials stay excluded from cloud/device backup. Settings mask the key and block screenshots/recents capture. An empty key field removes the credential. Configure only a trusted HTTPS service: selected text and key are sent to that host.
 
-In a supporting app, select text → **Qwen перевод**. Open **⋮** and **scroll the action list down** if necessary: on the tested HONOR tablet, several handlers appear above Qwen. Otherwise use Share → **Qwen перевод**; Huawei's Share sheet also has multiple pages (swipe left).
+Translate tries configured AI then one best-effort Google web fallback. Explanation requires the AI key. Errors distinguish authentication, rate limit, timeout, network, access restriction, unavailable service and malformed responses, without rendering raw server bodies/exceptions.
 
-For a quicker alternative in apps with custom menus: add **Qwen перевод** through Quick Settings → Edit, then **Copy → open Quick Settings → Qwen перевод**. The tile opens a foreground window before reading the first clipboard item's plain text, once per click. It does not read URI/image content or listen for clipboard changes. Blank/nontext and oversized clipboard contents show a message without a request. Clipboard/Share/TRANSLATE never offer Replace.
+## Android integration
 
-On HONOR KRJ-W09, stock selection menus work; the tested Huawei Browser and old ReadEra menus have app-specific limitations. ReadEra's Translate explicitly opens Yandex; its Share flow and the Qwen tile work. See [HONOR_VERIFICATION.md](HONOR_VERIFICATION.md) for evidence and reproduction. After changing settings from the popup, return with Back and tap Retry, or switch the operation, to use the new settings.
+In supporting apps: select → **Qwen перевод**. On HONOR, open ⋮ and scroll below other handlers if needed. The previous verified native selection path is preserved.
 
-## Build and install
+The old ReadEra 19.12.27 direct **ПЕРЕВОД → Qwen popup** path uses the legacy translation-link handler: `http://translate.google.com/#auto/en/<text>`. Its Manifest filter and parser are unchanged in this iteration. This is regression-critical; do not remove it or substitute Share/Tile as its acceptance criterion. The existing ReadEra/Android chooser setup must be retained.
 
-Requirements: JDK 17+ (verified with OpenJDK 21), Android SDK Platform 37.0, Build Tools 36.0.0, internet for first dependency download. Set `ANDROID_HOME` or ignored `local.properties` (`sdk.dir=...`).
+Share and the optional Quick Settings tile remain secondary entry points. The tile reads only explicitly copied plain text once from a foreground adapter.
 
-The official Gradle 9.4.1 wrapper, including its JAR and distribution SHA-256 verification, is included. AGP 9.2.0, Kotlin/Compose plugin 2.2.10 and the existing dependency versions are retained. `android.newDsl=false` accompanies the existing `android.builtInKotlin=false`, as required by the external Kotlin plugin; AGP reports deprecation warnings for this compatible configuration.
+## Build
+
+JDK 17+ (verified OpenJDK 21), existing Android SDK Platform 37 / Build Tools 36.0.0. Keep the current wrapper/dependency versions; set `ANDROID_HOME` or ignored `local.properties`.
 
 ```bash
-./gradlew --version
-./gradlew testDebugUnitTest
-./gradlew assembleDebug
-./gradlew lintDebug
-adb devices -l
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-On this Arch machine, checks used `JAVA_HOME=/usr/lib/jvm/java-21-openjdk` before each Gradle command. The generated APK is:
+APK: `/data/qwen-selection-translator-android/app/build/outputs/apk/debug/app-debug.apk`.
 
-```text
-/data/qwen-selection-translator-android/app/build/outputs/apk/debug/app-debug.apk
-```
+See [VERIFICATION.md](VERIFICATION.md) for exact JVM/Compose test results and device checks. No external API calls or credentials are required by tests. Debug-only Compose previews cover short/long results, partial success, errors, one disabled block and dark landscape.
 
-See [VERIFICATION.md](VERIFICATION.md) for actual results and the phone checklist. Unit tests use fakes/interceptors and a local MockWebServer, with no mandatory external API calls.
+Current redesign verified on USB HONOR KRJ-W09 / HWKRJ, Android 10 / API 29: live automatic results, real EnglishWords selection/Replace/Copy, ReadEra direct **ПЕРЕВОД**, settings restart/order/enabled blocks, offline Retry and landscape. All 16 physical-device instrumentation tests passed. Earlier Honor findings and screenshots are kept separately as historical evidence. See [VERIFICATION.md](VERIFICATION.md).
 
-## Remaining limitations
+## Limits
 
-- Tablet runtime verification passed for stock selection, live AI translation/Explain, Copy/paste, editable Replace, readonly/Share restrictions, tile and rotation. Samsung was not connected for a repeat check; standard PROCESS_TEXT/result semantics are preserved.
-- Google web fallback is unofficial. A live probe returned HTTP 429 in this environment; successful live fallback translation remains unverified. Failures are bounded and shown to the user.
-- AI source language is displayed as `авто`; Google may report a detected code.
-- Long text can exceed fallback URL or provider quotas even below the app's input limit. Truncated AI responses are rejected rather than offered as complete translations.
-- No history, offline dictionary, streaming or Rust implementation. `TranslatorEngine` remains Android-free for future Rust/UniFFI integration.
-- Custom selection menus may omit third-party PROCESS_TEXT actions.
+- Google web fallback is unofficial and may reject requests; live fallback reliability remains unverified.
+- Input above 12,000 UTF-16 characters is rejected before requests. Provider/token limits still apply.
+- AI source-language detection is not returned by the existing API contract; the header uses configured Auto unless a provider reports a detected language.
+- Custom host menus may omit PROCESS_TEXT. Honor and old ReadEra were verified; Samsung and newer Android remain separate physical-device checks.
+- History, dictionary, offline providers, streaming and Rust/UniFFI remain future work behind the existing engine seam.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [CODEX_HANDOFF.md](CODEX_HANDOFF.md).
+[ARCHITECTURE.md](ARCHITECTURE.md) · [CODEX_HANDOFF.md](CODEX_HANDOFF.md) · [HONOR_VERIFICATION.md](HONOR_VERIFICATION.md).

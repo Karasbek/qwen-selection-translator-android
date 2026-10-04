@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.network
 
+import com.karas.qwentranslator.core.FailureKind
 import com.karas.qwentranslator.core.TranslationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
@@ -17,7 +18,7 @@ internal suspend fun Call.awaitPayload(): HttpPayload = suspendCancellableCorout
     enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
             if (continuation.isActive) continuation.resumeWithException(
-                TranslationException.ProviderFailure("Нет сети или истекло время ожидания"),
+                TranslationException.ProviderFailure("Нет сети или истекло время ожидания", kind = HttpFailureMapping.network(e)),
             )
         }
 
@@ -30,7 +31,7 @@ internal suspend fun Call.awaitPayload(): HttpPayload = suspendCancellableCorout
                     val limit = 1_048_576L
                     source.request(limit + 1)
                     if (source.buffer.size > limit) {
-                        throw TranslationException.ProviderFailure("Ответ сервера слишком большой")
+                        throw TranslationException.ProviderFailure("Ответ сервера слишком большой", kind = FailureKind.MALFORMED_RESPONSE)
                     }
                     HttpPayload(it.code, source.readUtf8())
                 }
@@ -38,7 +39,7 @@ internal suspend fun Call.awaitPayload(): HttpPayload = suspendCancellableCorout
             } catch (e: Exception) {
                 if (continuation.isActive) continuation.resumeWithException(
                     if (e is TranslationException) e else
-                        TranslationException.ProviderFailure("Не удалось прочитать ответ сервера"),
+                        TranslationException.ProviderFailure("Не удалось прочитать ответ сервера", kind = HttpFailureMapping.network(e)),
                 )
             }
         }

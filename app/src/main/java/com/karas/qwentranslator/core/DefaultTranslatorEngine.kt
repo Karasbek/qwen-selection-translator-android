@@ -10,10 +10,10 @@ class DefaultTranslatorEngine(
     override suspend fun execute(request: TranslationRequest): TranslationResult {
         require(request.text.isNotBlank()) { "Text must not be blank" }
         if (request.text.length > MAX_INPUT_CHARACTERS) {
-            throw TranslationException.Configuration("Текст слишком длинный (максимум $MAX_INPUT_CHARACTERS символов)")
+            throw TranslationException.Configuration("Текст слишком длинный (максимум $MAX_INPUT_CHARACTERS символов)", kind = FailureKind.INPUT_TOO_LONG)
         }
 
-        val errors = mutableListOf<String>()
+        val errors = mutableListOf<TranslationFailure>()
         val candidates = providers.filter { it.supports(request.operation) }
         if (candidates.isEmpty()) {
             throw TranslationException.NoProvider("Нет провайдера для ${request.operation}")
@@ -25,15 +25,15 @@ class DefaultTranslatorEngine(
                 val result = provider.execute(request)
                 currentCoroutineContext().ensureActive()
                 if (result.outputText.isBlank()) {
-                    throw TranslationException.ProviderFailure("Провайдер вернул пустой ответ")
+                    throw TranslationException.ProviderFailure("Провайдер вернул пустой ответ", kind = FailureKind.MALFORMED_RESPONSE)
                 }
                 return result
             } catch (e: CancellationException) {
                 throw e
             } catch (e: TranslationException) {
-                errors += "${provider.id}: ${e.message}"
+                errors += TranslationFailure.from(e)
             } catch (e: Exception) {
-                errors += "${provider.id}: ошибка подключения или обработки ответа"
+                errors += TranslationFailure(FailureKind.UNKNOWN)
             }
         }
 
@@ -42,9 +42,11 @@ class DefaultTranslatorEngine(
                 append("Не удалось обработать текст.")
                 if (errors.isNotEmpty()) {
                     append(" ")
-                    append(errors.joinToString(" | "))
+                    append("Все доступные провайдеры отказали.")
                 }
             },
+            kind = errors.firstOrNull()?.kind ?: FailureKind.NO_PROVIDER,
+            provider = errors.firstOrNull()?.provider,
         )
     }
 

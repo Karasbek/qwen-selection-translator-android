@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.network
 
+import com.karas.qwentranslator.core.FailureKind
 import com.karas.qwentranslator.core.Operation
 import com.karas.qwentranslator.core.TranslationException
 import com.karas.qwentranslator.core.TranslationRequest
@@ -41,7 +42,7 @@ class GoogleWebTranslateProvider(
 
         val response = client.newCall(httpRequest).awaitPayload()
         if (response.code !in 200..299) {
-            throw TranslationException.ProviderFailure("Google fallback HTTP ${response.code}")
+            throw TranslationException.ProviderFailure("Google fallback HTTP ${response.code}", kind = HttpFailureMapping.status(response.code), provider = "Google")
         }
         parse(response.body, request)
     }
@@ -55,13 +56,13 @@ class GoogleWebTranslateProvider(
                     val segment = segments.getJSONArray(index)
                     val translated = segment.get(0)
                     if (translated !is String) {
-                        throw TranslationException.ProviderFailure("Некорректный ответ Google fallback")
+                        throw TranslationException.ProviderFailure("Некорректный ответ Google fallback", kind = FailureKind.MALFORMED_RESPONSE, provider = "Google")
                     }
                     append(translated)
                 }
             }.trim()
             if (output.isBlank()) {
-                throw TranslationException.ProviderFailure("Google fallback вернул пустой перевод")
+                throw TranslationException.ProviderFailure("Google fallback вернул пустой перевод", kind = FailureKind.MALFORMED_RESPONSE, provider = "Google")
             }
             return TranslationResult(
                 outputText = output,
@@ -72,7 +73,7 @@ class GoogleWebTranslateProvider(
         } catch (e: TranslationException) {
             throw e
         } catch (e: Exception) {
-            throw TranslationException.ProviderFailure("Не удалось разобрать Google fallback")
+            throw TranslationException.ProviderFailure("Не удалось разобрать Google fallback", kind = FailureKind.MALFORMED_RESPONSE, provider = "Google")
         }
     }
 }

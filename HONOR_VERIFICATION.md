@@ -1,5 +1,27 @@
 # HONOR tablet selection integration — 2026-10-04
 
+## Current redesign runtime verification after crash recovery
+
+The existing redesign worktree was audited, built and installed with `adb install -r` on the USB-connected **HONOR KRJ-W09 / HWKRJ, Android 10 / API 29, MagicUI 3.1.1, build KRJ-W09 3.1.1.267(C10E1R1P1)**. The recovery backup was retained; no app data cleared or API key changed. Live AI replies confirm key preservation across install/settings saves/force-stop.
+
+- MainActivity opens all new settings sections. Defaults confirmed: Explanation → Translation, both ON, explanation English/Simple/examples ON, source Auto and target Russian.
+- Direct readonly PROCESS_TEXT automatically starts both independent requests; Replace absent, keyboard hidden, dark UI usable, Close/Back return to caller.
+- **ReadEra Premium 19.12.27+1120 direct regression passed:** select in the dedicated harmless TXT → ⋮ → **ПЕРЕВОД** → Qwen popup. ActivityTaskManager records ACTION_VIEW into Qwen from ReadEra UID 10334. The unchanged TranslationLinkParser handles the legacy `translate.google.com/#auto/en/<text>` route; both results start, readonly, no Replace. Share/Tile were not used as substitutes.
+- **EnglishWords 4.3.4 real PROCESS_TEXT passed:** search EditText selection → ⋮ → scroll → Qwen. Replace returned `Здравствуйте world` from `Hello world`. Select all of `  Hello  ` returned `  Здравствуйте  `, preserving both edge spaces.
+- Copy for each block was pasted into the real EnglishWords field: only that block's result; translation Copy omits selection-edge padding.
+- Result-order persistence passed after Save → force-stop → reopen → popup. Explanation-only and Translation-only passed; last-enabled switch cannot be turned off. Both ON/default order restored.
+- Russian/Detailed/no-examples settings survive restart and produce the requested explanation; English/Simple/examples ON restored.
+- Offline timeout messages were safe and independent; Wi-Fi restored in `finally`. Partial success and Translation-only Retry verified, preserving successful Explanation.
+- Long source/results scroll in actual dark landscape; fixed Close remains usable, results survive portrait. Rotation lock/portrait and system dark mode restored/preserved.
+- Rapid SINGLE_TOP PROCESS_TEXT updates showed only new results. **16 Honor instrumentation tests passed**; counted activity tests verify exactly two calls through portrait/landscape/portrait/recreation, stale non-cooperative response protection/latest Intent after recreation, and both requests cancelled on close.
+- No Qwen FATAL EXCEPTION in filtered logcat. API key/HTTP credentials were not logged or included in screenshots.
+
+Current screenshots: [ReadEra direct popup](docs/runtime/honor-redesign-readera-popup.png), [EnglishWords editable popup](docs/runtime/honor-redesign-englishwords-popup.png). Full commands, test counts, final smoke and limitations: [VERIFICATION.md](VERIFICATION.md).
+
+## Historical integration verification before redesign
+
+Everything below describes earlier integration investigations and the old popup. The later baseline (`649ed23`, `8eb615e`) added the legacy translation-link route. In particular, the earlier explicit Yandex finding and Share workaround below do **not** describe the current working direct ReadEra route. Earlier screenshots are [old menu](docs/runtime/honor-englishwords-process-text-menu.png) and [old popup](docs/runtime/honor-englishwords-qwen-popup.png).
+
 ## Device identified over USB
 
 | Property | Value |

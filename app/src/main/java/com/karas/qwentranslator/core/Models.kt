@@ -10,6 +10,7 @@ data class TranslationRequest(
     val operation: Operation,
     val sourceLanguage: String = "auto",
     val targetLanguage: String = "ru",
+    val explanation: ExplanationOptions = ExplanationOptions(),
 ) {
     companion object {
         const val MAX_TEXT_LENGTH = 12_000
@@ -23,8 +24,13 @@ data class TranslationResult(
     val operation: Operation,
 )
 
-sealed class TranslationException(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    class NoProvider(message: String) : TranslationException(message)
-    class ProviderFailure(message: String, cause: Throwable? = null) : TranslationException(message, cause)
-    class Configuration(message: String) : TranslationException(message)
+sealed class TranslationException(
+    message: String, cause: Throwable? = null,
+    val kind: FailureKind = FailureKind.UNKNOWN, val provider: String? = null,
+) : Exception(message, cause) {
+    class NoProvider(message: String, kind: FailureKind = FailureKind.NO_PROVIDER, provider: String? = null) :
+        TranslationException(message, kind = kind, provider = provider)
+    class ProviderFailure(message: String, cause: Throwable? = null, kind: FailureKind = FailureKind.UNKNOWN, provider: String? = null) :
+        TranslationException(message, cause, kind, provider)
+    class Configuration(message: String, kind: FailureKind = FailureKind.CONFIGURATION) : TranslationException(message, kind = kind)
 }

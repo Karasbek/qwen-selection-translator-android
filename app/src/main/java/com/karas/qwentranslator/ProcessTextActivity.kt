@@ -11,8 +11,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
-import com.karas.qwentranslator.core.Operation
-import com.karas.qwentranslator.ui.popup.PopupUiState
 import com.karas.qwentranslator.util.Invocation
 import com.karas.qwentranslator.ui.popup.PopupScreen
 import com.karas.qwentranslator.ui.popup.ProcessTextViewModel
@@ -21,6 +19,7 @@ import com.karas.qwentranslator.util.InvocationParser
 
 class ProcessTextActivity : ComponentActivity() {
     private var initialInvocation: Invocation? = null
+    private var returningFromSettings = false
 
     private val viewModel: ProcessTextViewModel by viewModels {
         val app = application as TranslatorApplication
@@ -40,16 +39,13 @@ class ProcessTextActivity : ComponentActivity() {
             return
         }
 
+        returningFromSettings = savedInstanceState?.getBoolean("returningFromSettings") ?: false
         initialInvocation = input
         setContent {
             TranslatorTheme {
-                val currentInput by viewModel.invocation.collectAsStateWithLifecycle()
                 val state by viewModel.state.collectAsStateWithLifecycle()
                 PopupScreen(
-                    sourceText = currentInput.text,
                     state = state,
-                    canReplace = currentInput.canReplace,
-                    onOperation = viewModel::selectOperation,
                     onCopy = ::copy,
                     onReplace = ::replace,
                     onSettings = ::openSettings,
@@ -75,10 +71,7 @@ class ProcessTextActivity : ComponentActivity() {
     }
 
     private fun replace(text: String) {
-        val input = viewModel.invocation.value
-        val result = viewModel.state.value as? PopupUiState.Success ?: return
-        if (!input.canReplace || result.operation != Operation.TRANSLATE || result.text != text || text.isBlank()) return
-        val replacement = input.replacementText(text) ?: return
+        val replacement = viewModel.state.value.replacementText(text) ?: return
         setResult(
             RESULT_OK,
             Intent().putExtra(Intent.EXTRA_PROCESS_TEXT, replacement),
@@ -86,7 +79,21 @@ class ProcessTextActivity : ComponentActivity() {
         finish()
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (initialInvocation != null && returningFromSettings) {
+            returningFromSettings = false
+            viewModel.refreshSettings()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("returningFromSettings", returningFromSettings)
+        super.onSaveInstanceState(outState)
+    }
+
     private fun openSettings() {
+        returningFromSettings = true
         startActivity(Intent(this, MainActivity::class.java))
     }
 }

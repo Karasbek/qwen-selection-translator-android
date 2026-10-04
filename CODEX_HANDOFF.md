@@ -1,54 +1,36 @@
-# Codex handoff — 2026-10-04
+# Codex handoff — reading-popup redesign, 2026-10-04
 
-The existing Android MVP has been built successfully. Continue from this repository; do not recreate the project or rewrite the engine/UI. Git was initialized with the original project preserved in commit `e88c4b9`.
+Start from this single-module repository. The previous working point `8eb615e` / `649ed23` is preserved in history. No Rust rewrite, module expansion, new runtime permissions or provider dependencies.
 
-## Implemented fixes
+## Current behavior
 
-- Official Gradle 9.4.1 wrapper JAR/scripts and verified distribution SHA-256, Android gitignore and local SDK configuration (ignored).
-- AGP 9.2 external Kotlin compatibility (`android.newDsl=false` alongside `android.builtInKotlin=false`). Existing runtime dependency versions retained.
-- Fixed invalid window dim resource (`backgroundDimAmount`).
-- Removed popup `noHistory`, retained standard activity launch/result semantics, added explicit `onNewIntent` handling.
-- Shared intent validation handles MIME, null/blank/malformed input and readonly; selection whitespace is preserved, including in Replace results.
-- Cancel active coroutine and HTTP socket on new operation/invocation/retry; prevent duplicated loading-tab requests and stale replies. Engine never falls back on cancellation.
-- Safe network/config/JSON errors, bounded bodies/input, finite provider chain, no redirects or automatic connection retry, reject truncated AI response.
-- Centralized defaults, validate HTTPS URL and language/model, condition Groq extensions on Groq/Qwen configuration. Actual model/host shown in popup.
-- Explicit Close/Retry, language/provider info, constrained scrollable popup and wrapping buttons, dark settings background and safe insets.
-- Settings load/save errors handled; loading/saving disables edits; Keystore and synchronous persistence run off main. State diagnostics redact credentials; FLAG_SECURE on settings.
-- Reviewed AES-GCM fresh IV/key generation, authentication and missing-key restore behavior; unusable ciphertext cleared. Existing backup exclusions are correct and retained.
-- Added network/core/settings/Invocation/ViewModel regression tests with fakes and local HTTP only.
+- Popup automatically starts the enabled Explanation and Translation as independent sibling jobs in one `ProcessTextViewModel`. Defaults: Explanation first, Translation second, both ON.
+- Each block has Disabled/Loading/Success/Error; local Retry and Copy. Partial success remains visible. Translation alone may Replace an editable PROCESS_TEXT selection.
+- `PopupUiState` contains invocation, language pair, ordered block list and a state map. `replacementText` rechecks current output, operation and invocation; Android result delivery is unchanged.
+- Per-invocation generation and per-block request IDs reject stale responses, including non-cooperative cancelled operations. Clearing the ViewModel cancels HTTP sockets. Recomposition/normal resume never start requests.
+- On return from Settings, changed operation/provider options refresh results. Order-only changes retain them; disabling cancels just that block; enabling runs only the newly enabled block. An unchanged configuration retries errors on return (also recovers a key-only save) without repeating successful results.
+- UI: source text + language pair, overflow Settings/provider info, separate cards, scrollable body, fixed Close. Bounded viewport/620dp width/640dp height. Background gesture handling preserves distinct accessibility headings.
 
-## Verified result
+## Settings and core
 
-See `VERIFICATION.md` for commands, report paths and exact counts. Both required Gradle tasks and lint succeed. Debug APK:
+`AppSettings` persists ordered enum names and enabled set, source/target languages and `ExplanationOptions` alongside existing model/base URL in the SAME DataStore. Old-install keys/defaults and unknown future enum values are handled without resetting user data. Saving zero enabled blocks is rejected; the final switch is disabled and ViewModel guards it.
 
-`/data/qwen-selection-translator-android/app/build/outputs/apk/debug/app-debug.apk`
+Explanation defaults: English, Simple, maximum one short example. Language (English/same as source/Russian), detail and examples all affect `PromptBuilder` through Android-free `TranslationRequest.explanation`. Translation stays a separate operation; explicit source code reaches its prompt and Google provider.
 
-Debug signature and packaged intent-filter/backup resources checked. Follow-up USB verification on HONOR KRJ-W09 (Android 10 / API 29, Magic 3.1.1 / EMUI property 10.1.1) passed native selection, live Groq Translate/Explain with the existing encrypted user key, Copy/paste, actual editable Replace delivery, readonly/Share restrictions, tile and rotation. Final suite: 40 tests, 0 failures; assemble/lint pass (0 lint errors, 12 warnings). Google live success remains unverified after an earlier HTTP 429 probe.
+HTTP errors and parser/IO failures carry `FailureKind` and optional safe provider label; the engine preserves the primary category across failed fallback. UI uses curated messages, never raw exception messages/bodies. Google fallback remains best-effort, finite and translation-only.
 
-## HONOR follow-up
+## Regression-critical boundaries
 
-Read [HONOR_VERIFICATION.md](HONOR_VERIFICATION.md) before diagnosing menu absence again. There is no general firmware ban: stock widgets with View IDs expose a scrollable overflow; a separate temporary package launched the main Qwen handler across UIDs. The temporary package was removed; applicationId remains com.karas.qwentranslator.
+Manifest, `InvocationParser`, `TranslationLinkParser`, clipboard/tile adapters, `SecretStore` and backup XML are unchanged from `8eb615e`. Preserve PROCESS_TEXT, SEND, TRANSLATE, and VIEW for `http(s)://translate.google.com/`. Preserve the legacy `#auto/en/<text>` path used by old ReadEra's direct ПЕРЕВОД button. Do not treat Share/Tile as its acceptance criterion or replace package identities.
 
-Huawei Browser and ReadEra use their own limited menus. ReadEra Premium 19.12.27+1120's Translate explicitly starts ru.yandex.translate/.ui.activities.QuickTrActivity from ReadEra's UID; changing defaults/our Manifest cannot redirect it. Its Share works: second Huawei Share page → Qwen перевод. The system's native Petal Translate action is distinct from ReadEra's Yandex action. Do not claim a package blacklist based on missing logcat PackageManager queries.
+API key remains separately encrypted with Keystore AES-GCM, randomized IV. Settings still mask credentials and use FLAG_SECURE. Do not dump settings/key fields or HTTP credentials.
 
-Changes: distinct Qwen перевод action label, overflow/share instructions, standard ACTION_TRANSLATE adapter (EXTRA_TEXT, readonly), debug-only stock SelectionProbeActivity, optional ClipboardTileService → nonexported foreground ClipboardInvocationActivity → existing SEND/popup flow. Service never reads clipboard; focused adapter reads once, no listener. Input limit shared via TranslationRequest.MAX_TEXT_LENGTH. Old TileService launch is only used below API 34 with a narrow compatibility lint suppression. Main PROCESS_TEXT launchMode/result semantics, engine/provider abstraction and Keystore remain intact.
+## Verification and continuation
 
-The Qwen tile was added and left on the tablet for use. Debug fixture: adb shell am start -n com.karas.qwentranslator/.SelectionProbeActivity. It adds no custom menu actions. A harmless test TXT and Notes fixture were used; no personal documents/messages were translated or sent. The local HTTP server and USB reverse used for browser testing were stopped/removed.
+See [VERIFICATION.md](VERIFICATION.md) for final counts/commands and physical-device checklist. JVM tests use fakes and local MockWebServer, including real Preferences DataStore save/restart. Compose instrumentation tests run on the pre-existing API 35 AVD with fake result data; no emulator image downloaded. Debug previews include small/long content, dark landscape, one disabled block, partial success and errors.
 
-Remaining checks are in VERIFICATION.md: Samsung repeat run, Telegram/other custom menus, Notes selection, API 34+ and lockscreen tile behavior, complete key save/IV/backup/restore, broader offline/Unicode/long-layout tests. Do not dump password fields/preferences or raw HTTP credentials. Existing user key survived reinstall -r and worked; it was never printed or modified.
+The physical Honor was reconnected after crash recovery. Current redesign runtime regression passed on KRJ-W09 / HWKRJ, Android 10 / API 29: ReadEra 19.12.27 direct ПЕРЕВОД → Qwen, EnglishWords native PROCESS_TEXT with actual Replace/edge whitespace/Copy, automatic independent results, settings force-stop/order/enabled blocks/options, offline local Retry, long dark landscape and rapid new Intent. Defaults and original device rotation/network/theme were restored. 16 instrumentation tests passed on Honor, including three counted activity lifecycle checks with isolated test preferences. See VERIFICATION.md for the distinction between live provider checks, fake device tests and historical baseline evidence. No production device bug was reproduced; post-crash work completed the audit, added activity tests and current screenshots/docs. Recovery backup remains at `/data/qwen-translator-recovery-20261004-171306`.
 
-## Boundaries to preserve
+APK: `/data/qwen-selection-translator-android/app/build/outputs/apk/debug/app-debug.apk`.
 
-`Invocation` → `ProcessTextViewModel` → `TranslatorEngine` → `TranslatorProvider`. Core contracts are Android-free. `SettingsStore` and `ApiKeyStore` are small test seams over the existing DataStore/Keystore implementations. Compose/Activity must not contain provider HTTP/parsing.
-
-Rust/UniFFI, history, streaming, offline dictionaries and extra providers remain future work. No Accessibility/overlay permissions. Do not touch Linux sway-translator or other repositories.
-
-## Known limits
-
-- Host-specific Browser/old ReadEra menu limitations; stock HONOR selection, Share and tile have runtime evidence.
-- Google unofficial endpoint/URL length and service quotas may reject requests; no unbounded fallback/retries.
-- 12,000 UTF-16 input-character cap; AI output token cap and provider limits also apply.
-- Groq source language is `авто`; Google may report its detected code.
-- Intent menu visibility depends on the caller's Android selection implementation.
-- Build emits AGP legacy Kotlin/DSL deprecations. Future AGP 10 migration will need built-in Kotlin; not required for this working AGP 9.2 MVP.
-- Debug lint succeeds with nonblocking warnings recorded in `VERIFICATION.md`. Release build/signing was outside the requested milestone.
+Remaining product limits: unofficial Google reliability, API input/token limits, host custom menus, source Auto when AI returns no detection, no dictionary/history/offline/streaming yet. Core contracts remain Android-free for future Rust/UniFFI. Existing AGP legacy DSL/Kotlin deprecations and lint warnings remain; do not upgrade toolchains just to silence them.
