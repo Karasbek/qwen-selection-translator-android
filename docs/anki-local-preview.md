@@ -1,3 +1,5 @@
+> Current selection/editor behavior: [Interactive Cloze editor](anki-interactive-cloze.md). An exact match now omits the separate header; the original initial format is described below.
+
 # Full Explain → local Anki preview + offline IPA
 
 This supersedes the earlier structured Groq card generation and conservative

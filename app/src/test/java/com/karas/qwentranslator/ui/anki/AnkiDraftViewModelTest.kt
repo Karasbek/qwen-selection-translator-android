@@ -36,7 +36,7 @@ class AnkiDraftViewModelTest {
         assertEquals(explain, draft.content.explanation)
         assertEquals("", draft.content.partOfSpeech)
         assertTrue(draft.validation.valid)
-        assertEquals("{{c1::abandon}}<br><br>To leave something behind. Example&#58; They {{c1::abandon}} the project.", draft.fields[0])
+        assertEquals("To leave something behind. Example&#58; They {{c1::abandon}} the project.", draft.fields[0])
         assertEquals(0, gateway.writes)
     }
     @Test fun editingRebuildsAndClearsIpaOnWordChange() = runTest(dispatcher) {
@@ -141,4 +141,36 @@ class AnkiDraftViewModelTest {
         assertEquals(explain, vm.state.value.draft!!.content.explanation)
         assertFalse(vm.state.value.draft!!.validation.valid); assertEquals(0, gateway.writes)
     }
+    @Test fun selectedRangesKeepIpaAndSurviveReopenAndDestinationRefresh() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        val before = vm.state.value.draft!!
+        val body = before.content.explanation!!
+        val picked = ClozeRanges.toggleAt(body, before.content.selections!!, body.indexOf("project"))
+        vm.edit(before.content.copy(selections = picked), before.ipa)
+        assertEquals(before.ipa, vm.state.value.draft!!.ipa)
+        val front = vm.state.value.draft!!.fields[0]
+        assertTrue(front.contains("{{c1::project}}"))
+        vm.close(); vm.open(request()); complete(vm)
+        assertEquals(picked, vm.state.value.draft!!.content.selections)
+        assertEquals(front, vm.state.value.draft!!.fields[0])
+        assertEquals(1, lookups); assertEquals(0, gateway.writes)
+    }
+    @Test fun editingTextResetsInvalidOffsetsWithWarningAndKeepsIpa() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        val before = vm.state.value.draft!!
+        vm.edit(before.content.copy(explanation = "We abandon this plan."), before.ipa)
+        val next = vm.state.value.draft!!
+        assertEquals(ClozeRanges.initial("We abandon this plan.", "abandon"), next.content.selections)
+        assertTrue(vm.state.value.selectionNotice!!.contains("пересчитаны"))
+        assertEquals(before.ipa,next.ipa); assertEquals(0,gateway.writes)
+    }
+    @Test fun revealingAllInvalidatesDraftWithoutAddingHeaderOrWriting() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        val before=vm.state.value.draft!!
+        vm.edit(before.content.copy(selections=ClozeSelections(emptyList())),before.ipa)
+        assertFalse(vm.state.value.draft!!.validation.valid)
+        assertEquals(before.ipa,vm.state.value.draft!!.ipa)
+        assertEquals(0,gateway.writes)
+    }
+
 }

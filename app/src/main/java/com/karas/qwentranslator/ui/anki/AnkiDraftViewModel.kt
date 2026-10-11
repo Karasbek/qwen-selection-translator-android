@@ -15,6 +15,7 @@ data class AnkiDraftUiState(
     val ipaSource: String? = null,
     val ipaVariants: List<String> = emptyList(),
     val explainNotice: String? = null,
+    val selectionNotice: String? = null,
     val dirty: Boolean = false,
     val confirmRegeneration: Boolean = false,
     val failure: TranslationFailure? = null,
@@ -127,9 +128,13 @@ class AnkiDraftViewModel(
         if (current.loading || saveLocked()) return
         val previous = current.draft ?: return
         val wordChanged = content.word != previous.content.word
+        val textChanged = content.explanation != previous.content.explanation
+        val adjusted = if ((textChanged || wordChanged) && content.explanation != null)
+            content.copy(selections = ClozeRanges.initial(content.explanation, content.word)) else content
         val nextIpa = if (wordChanged) "" else ipa
         _state.value = current.copy(
-            draft = AnkiCardDraft.build(previous.originalSelection, content, nextIpa, previous.deckId, previous.modelId, current.metadata),
+            draft = AnkiCardDraft.build(previous.originalSelection, adjusted, nextIpa, previous.deckId, previous.modelId, current.metadata),
+            selectionNotice = if (textChanged || wordChanged) "Текст изменён: пропуски пересчитаны. Проверьте выделения." else current.selectionNotice,
             dirty = true, failure = null, saveState = AnkiSaveState.Ready, ipaVariants = if (wordChanged) emptyList() else current.ipaVariants, ipaSource = if (wordChanged) null else if (ipa in current.ipaVariants) "ipa-dict · English (US), офлайн" else if (ipa != previous.ipa) null else current.ipaSource,
         )
     }
@@ -184,7 +189,7 @@ class AnkiDraftViewModel(
                 _state.value = _state.value.copy(metadata = metadata, draft = AnkiCardDraft.build(
                     previous.originalSelection, previous.content, previous.ipa, configuration.ankiDeckId, configuration.ankiModelId, metadata))
                 // Full Explain is data; never split, paraphrase, classify or call an LLM.
-                val content = CardContent(context.selection.trim(), explanation = context.explanation.orEmpty())
+                val content = CardContent(context.selection.trim(), explanation = context.explanation.orEmpty(), selections = ClozeRanges.initial(context.explanation.orEmpty(), context.selection.trim()))
                 val notice = when (context.explainState) {
                     ExplainState.READY -> null
                     ExplainState.LOADING -> "Explain ещё загружается. Дождитесь его и нажмите «Подготовить из текущего Explain» или введите текст вручную."
@@ -192,7 +197,7 @@ class AnkiDraftViewModel(
                     ExplainState.FAILED -> "Explain не получен. Вернитесь к переводу и повторите Explain или введите текст вручную."
                     ExplainState.MISSING -> "Готового Explain для этого слова нет. Откройте объяснение нужного слова или введите текст вручную."
                 }
-                _state.value = _state.value.copy(dirty = false, ipaSource = null, ipaVariants = emptyList(), explainNotice = notice,
+                _state.value = _state.value.copy(dirty = false, ipaSource = null, ipaVariants = emptyList(), explainNotice = notice, selectionNotice = null,
                     draft = AnkiCardDraft.build(previous.originalSelection, content, "",
                         configuration.ankiDeckId, configuration.ankiModelId, metadata))
                 val prepared = requireNotNull(_state.value.draft)

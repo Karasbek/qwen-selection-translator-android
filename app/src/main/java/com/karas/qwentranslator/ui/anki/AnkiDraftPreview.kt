@@ -49,6 +49,9 @@ fun AnkiDraftPreview(
                                     enabled = !state.loading && !state.saveState.locked, singleLine = singleLine, modifier = Modifier.fillMaxWidth())
                             }
                             field("Слово или выражение", content.word, { onEdit(content.copy(word = it), draft.ipa) }, true)
+                            Text("Нажмите слово, чтобы скрыть или раскрыть. Для фразы удерживайте и проведите пальцем. Подчёркнутые точки — c1; мягкая подсветка — только предложение.", style = MaterialTheme.typography.bodySmall)
+                            InteractiveClozeText(content, !state.loading && !state.saveState.locked) { onEdit(it, draft.ipa) }
+                            state.selectionNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                             field("Текст Explain / Front", content.explanation ?: listOf(content.definition, content.example).filter(String::isNotBlank).joinToString("\n\n"),
                                 { onEdit(content.copy(partOfSpeech = "", definition = "", example = "", explanation = it), draft.ipa) })
                             field("IPA (поле Pinyin)", draft.ipa, { onEdit(content, it) }, true)

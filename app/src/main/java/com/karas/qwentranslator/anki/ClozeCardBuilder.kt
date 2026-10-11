@@ -3,7 +3,7 @@ package com.karas.qwentranslator.anki
 import java.util.regex.Pattern
 
 /** Plain text from the generator or the editor; never model-produced HTML or Cloze. */
-data class CardContent(val word: String, val partOfSpeech: String = "", val definition: String = "", val example: String = "", val explanation: String? = null)
+data class CardContent(val word: String, val partOfSpeech: String = "", val definition: String = "", val example: String = "", val explanation: String? = null, val selections: ClozeSelections? = null)
 data class CardBuild(val fields: List<String> = emptyList(), val errors: List<String> = emptyList(), val warnings: List<String> = emptyList())
 data class DraftValidation(val errors: List<String>, val warnings: List<String> = emptyList()) { val valid: Boolean get() = errors.isEmpty() }
 data class AnkiCardDraft(
@@ -42,7 +42,7 @@ data class AnkiCardDraft(
 
 object ClozeCardBuilder {
     fun build(content: CardContent, ipa: String): CardBuild {
-        if (content.explanation != null) return buildExplanation(content.word.trim(), content.explanation, ipa)
+        if (content.explanation != null) return buildExplanation(content.word.trim(), content.explanation, ipa, content.selections)
         val word = content.word.trim()
         val errors = mutableListOf<String>()
         if (word.isBlank()) errors += "Введите изучаемое слово или выражение"
@@ -63,7 +63,7 @@ object ClozeCardBuilder {
         return CardBuild(listOf(front, escape(ipa.trim()), "", "", ""))
     }
 
-    private fun buildExplanation(word: String, explanation: String, ipa: String): CardBuild {
+    private fun buildExplanation(word: String, explanation: String, ipa: String, selected: ClozeSelections?): CardBuild {
         val errors = mutableListOf<String>()
         if (word.isBlank() || word.length > 200 || word.any { it == '\n' || it == '\r' || it == '\t' })
             errors += "Введите слово или выражение в одной строке (до 200 символов)"
@@ -72,32 +72,23 @@ object ClozeCardBuilder {
         if (listOf(word, explanation, ipa).any { value -> value.any { it.isISOControl() && it !in "\n\r\t" } })
             errors += "Удалите управляющие символы"
         if (errors.isNotEmpty()) return CardBuild(errors = errors)
-        fun wordPart(at: Int): Boolean {
-            if (at !in explanation.indices) return false
-            val start = if (Character.isLowSurrogate(explanation[at]) && at > 0 && Character.isHighSurrogate(explanation[at - 1])) at - 1 else at
-            val point = explanation.codePointAt(start)
-            return Character.isLetterOrDigit(point) || point == '_'.code || Character.getType(point) in listOf(
-                Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(), Character.ENCLOSING_MARK.toInt())
-        }
-        fun joined(at: Int, outside: Int) = at in explanation.indices && explanation[at] in "'’-" && wordPart(outside)
-        val matches = Regex(Pattern.quote(word), RegexOption.IGNORE_CASE).findAll(explanation).filter { match ->
-            val before = match.range.first - 1
-            val after = match.range.last + 1
-            !wordPart(before) && !wordPart(after) && !joined(before, before - 1) && !joined(after, after + 1)
-        }.toList()
+        val selections = selected ?: ClozeRanges.initial(explanation, word)
+        if (!ClozeRanges.valid(explanation, selections.hidden)) return CardBuild(errors = listOf("Некорректные или пересекающиеся выделения. Подготовьте пропуски заново."))
+        if (selections.hidden.isEmpty() && !selections.headerHidden) return CardBuild(errors = listOf("Для сохранения нужен хотя бы один пропуск c1"))
+        val matches = selections.hidden.sortedBy { it.start }.map { it.start until it.end }
         var visible = explanation
-        matches.asReversed().forEach { visible = visible.removeRange(it.range) }
+        matches.asReversed().forEach { visible = visible.removeRange(it) }
         if (visible.none { it.isLetterOrDigit() }) return CardBuild(errors = listOf("Добавьте объяснение значения, которое останется видимым"))
         val body = buildString {
             var start = 0
             matches.forEach { match ->
-                append(escape(explanation.substring(start, match.range.first)))
-                append("{{c1::").append(escape(match.value)).append("}}")
-                start = match.range.last + 1
+                append(escape(explanation.substring(start, match.first)))
+                append("{{c1::").append(escape(explanation.substring(match))).append("}}")
+                start = match.last + 1
             }
             append(escape(explanation.substring(start)))
         }
-        val front = "{{c1::${escape(word)}}}<br><br>$body"
+        val front = (if (selections.headerHidden) "{{c1::${escape(word)}}}<br><br>" else "") + body
         return CardBuild(listOf(front, escape(ipa.trim()), "", "", ""), warnings = listOf(
             "Другие словоформы не скрываются автоматически. Проверьте текст и при необходимости отредактируйте его, чтобы не раскрыть ответ."))
     }

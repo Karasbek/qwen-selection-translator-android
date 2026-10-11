@@ -111,7 +111,9 @@ class ProcessTextActivityTest {
         temporarySettings.deleteRecursively()
     }
 
-    private fun explanation(word: String) = "To $word means something. Example: They $word today."
+    private fun explanation(word: String) = if (word == "optimization")
+        "Optimization is the process of making something as effective as possible.\n\nExample: Companies optimize their production processes."
+        else "To $word means something. Example: They $word today."
     private fun preparation(word: String) = AnkiPreparationRequest(word, "en", explanation(word))
 
     private fun intent(text: String) = Intent(instrumentation.targetContext, ProcessTextActivity::class.java)
@@ -199,7 +201,13 @@ class ProcessTextActivityTest {
         await { !model.state.value.loading }
         assertEquals(1, ipaCalls)
         scenario!!.onActivity { model.edit(model.state.value.draft!!.content.copy(explanation = "We agree on the plan."), "/manual/") }
+        scenario!!.onActivity {
+            val draft = model.state.value.draft!!
+            val body = draft.content.explanation!!
+            model.edit(draft.content.copy(selections = ClozeRanges.toggleAt(body, draft.content.selections!!, body.indexOf("plan"))), draft.ipa)
+        }
         val before = model.state.value
+        assertTrue(before.draft!!.fields[0].contains("{{c1::plan}}"))
         scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         awaitOrientation(Configuration.ORIENTATION_LANDSCAPE)
         assertEquals(before, draftModel().state.value)
@@ -270,6 +278,7 @@ class ProcessTextActivityTest {
     /** With -e readeraSmoke true, a synthetic book selection is delivered by the actual ReadEra UI. */
     @Test fun readEraTranslateActionUsesOnlyCountedFakes() {
         val physical = InstrumentationRegistry.getArguments().getString("readeraSmoke") == "true"
+        val selectedWord = InstrumentationRegistry.getArguments().getString("readeraWord") ?: "abandon"
         if (!physical) {
             scenario = ActivityScenario.launch(Intent(instrumentation.targetContext, ProcessTextActivity::class.java)
                 .setAction(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, "abandon"))
@@ -284,7 +293,7 @@ class ProcessTextActivityTest {
         val deadline = SystemClock.uptimeMillis() + 55_000
         while (requests.size < 2 && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
         assertEquals(2, requests.size)
-        assertTrue(requests.all { it.text.trim() == "abandon" })
+        assertTrue(requests.all { it.text.trim() == selectedWord })
         var popup: ProcessTextActivity? = null
         instrumentation.runOnMainSync {
             popup = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
@@ -298,9 +307,17 @@ class ProcessTextActivityTest {
             val previewDeadline = SystemClock.uptimeMillis() + 55_000
             while ((!model!!.state.value.visible || model!!.state.value.loading) && SystemClock.uptimeMillis() < previewDeadline) SystemClock.sleep(50)
             assertTrue(model!!.state.value.visible && !model!!.state.value.loading)
-            assertEquals(explanation("abandon"), model!!.state.value.draft!!.content.explanation)
+            assertEquals(explanation(selectedWord), model!!.state.value.draft!!.content.explanation)
             assertEquals(0, ipaCalls)
-            assertEquals("/əˈbændən/", model!!.state.value.draft!!.ipa)
+            assertEquals(if (selectedWord == "optimization") "/ɑptəməˈzeɪʃən/" else "/əˈbændən/", model!!.state.value.draft!!.ipa)
+            if (selectedWord == "optimization") {
+                val draft = model!!.state.value.draft!!
+                assertFalse(draft.content.selections!!.headerHidden)
+                assertEquals(1, draft.content.selections!!.hidden.size)
+                assertEquals(1, ClozeRanges.suggested(draft.content.explanation!!, selectedWord).size)
+                assertTrue(draft.fields[0].startsWith("{{c1::Optimization}} is"))
+                assertFalse(draft.fields[0].contains("{{c1::optimize}}"))
+            }
             assertTrue(model!!.state.value.draft!!.validation.valid)
             assertEquals(0, writes.get())
             assertEquals(2, requests.size)

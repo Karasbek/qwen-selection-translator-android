@@ -3,6 +3,8 @@ package com.karas.qwentranslator.ui.anki
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import com.karas.qwentranslator.anki.*
 import org.junit.Assert.*
@@ -27,7 +29,7 @@ class AnkiDraftPreviewTest {
         compose.onNodeWithText("Колода: Test deck").assertIsDisplayed()
         compose.onNodeWithText("Тип заметки: Test cloze").assertIsDisplayed()
         compose.onNodeWithText("Текст Explain / Front").performScrollTo().performTextReplacement("To have the same opinion. They agree today.")
-        compose.onNodeWithText("{{c1::agree}}<br><br>To have the same opinion. They {{c1::agree}} today.")
+        compose.onNodeWithText("To have the same opinion. They {{c1::agree}} today.")
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Сохранить в Anki").assertIsEnabled()
         compose.onNodeWithText("Вернуться к переводу").assertIsDisplayed().performClick()
@@ -134,6 +136,42 @@ class AnkiDraftPreviewTest {
         compose.onNodeWithText("Текст Explain / Front").performScrollTo().performTextReplacement("To share an opinion.")
         compose.onNodeWithText("Сохранить в Anki").assertIsEnabled()
         assertEquals("{{c1::agree}}<br><br>To share an opinion.", current.draft!!.fields[0])
+    }
+
+    @Test fun inlineGesturesWorkInsideScrollingPreviewAndManualEditorRemainsAvailable() {
+        val source="Optimization is the process of making something as effective as possible.\n\nExample: Companies optimize their production processes."
+        val data=CardContent("optimization",explanation=source,selections=ClozeRanges.initial(source,"optimization"))
+        var current by mutableStateOf(state().copy(draft=AnkiCardDraft.build("optimization",data,"/ipa/",42,57,metadata)))
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(current, { edited,ipa ->
+                val adjusted=if (edited.explanation != current.draft!!.content.explanation)
+                    edited.copy(selections=ClozeRanges.initial(edited.explanation!!,edited.word)) else edited
+                current=current.copy(draft=AnkiCardDraft.build("optimization",adjusted,ipa,42,57,metadata))
+            },{},{},{},{},{})
+        } }
+        fun point(offset:Int): androidx.compose.ui.geometry.Offset {
+            compose.onNodeWithTag("interactive-cloze").performScrollTo()
+            val results=mutableListOf<TextLayoutResult>()
+            compose.onNodeWithTag("interactive-cloze").fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+            return results.single().getBoundingBox(offset).center
+        }
+        val optimize=source.indexOf("optimize")
+        var at=point(optimize)
+        compose.onNodeWithTag("interactive-cloze").performTouchInput { click(at) }
+        assertTrue(current.draft!!.fields[0].contains("{{c1::optimize}}"))
+        at=point(optimize)
+        compose.onNodeWithTag("interactive-cloze").performTouchInput { click(at) }
+        assertFalse(current.draft!!.fields[0].contains("{{c1::optimize}}"))
+        val from=point(source.indexOf("their")); val to=point(source.indexOf("production")+2)
+        compose.onNodeWithTag("interactive-cloze").performTouchInput { down(from); advanceEventTime(700); moveTo(to,300); up() }
+        assertTrue(current.draft!!.fields[0].contains("{{c1::their production}}"))
+        val selected=current.draft!!.content.selections
+        compose.onNodeWithTag("interactive-cloze").performTouchInput { swipeUp() }
+        assertEquals(selected,current.draft!!.content.selections)
+        compose.onNodeWithText("Текст Explain / Front").performScrollTo().performTextReplacement("Optimization improves work.")
+        assertEquals("{{c1::Optimization}} improves work.",current.draft!!.fields[0])
+        assertEquals("/ipa/",current.draft!!.ipa)
+        compose.onNodeWithText("Вернуться к переводу").assertIsDisplayed()
     }
 
 }

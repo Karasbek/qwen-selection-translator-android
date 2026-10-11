@@ -210,7 +210,7 @@ class AnkiSaveCoordinatorTest {
         assertEquals(0, gateway.calls); assertTrue(d.validation.valid)
         c.save(d); c.save(d); advanceUntilIdle()
         assertEquals(1, gateway.calls)
-        assertEquals(listOf("{{c1::agree}}<br><br>To share an opinion. We {{c1::agree}}; they {{c1::agree}}.", "/əˈɡriː/", "", "", ""), gateway.inserted!!.fields)
+        assertEquals(listOf("To share an opinion. We {{c1::agree}}; they {{c1::agree}}.", "/əˈɡriː/", "", "", ""), gateway.inserted!!.fields)
         assertEquals(AnkiSaveState.Saved(123), c.state(d))
     }
     @Test fun editedGeneratedFrontCannotBypassFullExplainRevalidation() = runTest {
@@ -219,6 +219,18 @@ class AnkiSaveCoordinatorTest {
         val tampered = d.copy(fields = listOf("{{c2::agree}}", "", "", "", ""))
         val c = coordinator(this); c.save(tampered); advanceUntilIdle()
         assertEquals(0, gateway.calls); assertTrue(c.state(tampered) is AnkiSaveState.FailedBeforeWrite)
+    }
+
+    @Test fun interactiveSelectionsRebuildBeforeExplicitSaveAndKeepFieldOrder() = runTest {
+        val c=coordinator(this)
+        val body="Optimization makes work effective. Companies optimize production."
+        val selected=ClozeRanges.toggleAt(body,ClozeRanges.initial(body,"optimization"),body.indexOf("optimize"))
+        val d=AnkiCardDraft.build("optimization",CardContent("optimization",explanation=body,selections=selected),"/ipa/",42,57,AnkiConnection(gateway).load())
+        assertEquals(0,gateway.calls)
+        c.save(d); advanceUntilIdle()
+        assertEquals(1,gateway.calls)
+        assertEquals(listOf("{{c1::Optimization}} makes work effective. Companies {{c1::optimize}} production.","/ipa/","","",""),gateway.inserted!!.fields)
+        assertEquals(AnkiSaveState.Saved(123),c.state(d))
     }
 
 }
