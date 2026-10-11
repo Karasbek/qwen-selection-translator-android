@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
+    val anki = com.karas.qwentranslator.anki.AndroidAnkiGateway(context)
     val settings = SettingsRepository(context.applicationContext)
     val secrets = SecretStore(context.applicationContext)
 

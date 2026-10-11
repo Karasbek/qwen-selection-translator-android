@@ -1,5 +1,7 @@
 package com.karas.qwentranslator
 
+import com.karas.qwentranslator.anki.AndroidAnkiGateway
+import androidx.activity.result.contract.ActivityResultContracts
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -18,7 +20,16 @@ import com.karas.qwentranslator.ui.theme.TranslatorTheme
 class MainActivity : ComponentActivity() {
     private val viewModel: SettingsViewModel by viewModels {
         val app = application as TranslatorApplication
-        SettingsViewModel.Factory(app.container.settings, app.container.secrets)
+        SettingsViewModel.Factory(app.container.settings, app.container.secrets, app.container.anki)
+    }
+
+    private val ankiPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.refreshAnki()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshAnki()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,6 +51,10 @@ class MainActivity : ComponentActivity() {
                         onModelChange = viewModel::updateModel,
                         onApiKeyChange = viewModel::updateApiKey,
                         onSave = viewModel::save,
+                        onAnkiRefresh = viewModel::refreshAnki,
+                        onAnkiPermission = { ankiPermission.launch(AndroidAnkiGateway.PERMISSION) },
+                        onAnkiDeck = viewModel::selectAnkiDeck,
+                        onAnkiModel = viewModel::selectAnkiModel,
                     )
                 }
             }
