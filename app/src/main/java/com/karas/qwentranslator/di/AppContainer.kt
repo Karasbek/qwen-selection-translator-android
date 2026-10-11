@@ -11,7 +11,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
-    val anki = com.karas.qwentranslator.anki.AndroidAnkiGateway(context)
+    val anki: com.karas.qwentranslator.anki.AnkiGateway = com.karas.qwentranslator.anki.AndroidAnkiGateway(context)
     val settings = SettingsRepository(context.applicationContext)
     val secrets = SecretStore(context.applicationContext)
 
@@ -24,6 +24,9 @@ class AppContainer(context: Context) {
         .followRedirects(false)
         .followSslRedirects(false)
         .build()
+
+    val cardGenerator: com.karas.qwentranslator.anki.CardGenerator = com.karas.qwentranslator.network.GroqCardGenerator(httpClient, settings, secrets)
+    val ipaLookup: com.karas.qwentranslator.anki.IpaLookup = com.karas.qwentranslator.network.DictionaryIpaLookup(httpClient)
 
     val engine: TranslatorEngine = DefaultTranslatorEngine(
         providers = listOf(

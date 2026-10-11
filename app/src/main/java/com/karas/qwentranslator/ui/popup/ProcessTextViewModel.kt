@@ -132,7 +132,8 @@ class ProcessTextViewModel(
                         // A key-only save does not change nonsecret preferences. Recover errors on return.
                         loaded.resultOrder.filter { _state.value.blocks[it] is ResultUiState.Error }.forEach { run(it, loaded) }
                     }
-                    previous != null && previous.copy(resultOrder = loaded.resultOrder, enabledBlocks = loaded.enabledBlocks) == loaded -> {
+                    previous != null && previous.copy(resultOrder = loaded.resultOrder, enabledBlocks = loaded.enabledBlocks,
+                        ankiDeckId = loaded.ankiDeckId, ankiModelId = loaded.ankiModelId) == loaded -> {
                         // Reordering/turning a block off must not spend another request on retained results.
                         val oldBlocks = _state.value.blocks
                         loaded.resultOrder.filter { it !in loaded.enabledBlocks }.forEach { block ->

@@ -38,16 +38,16 @@ Cloze and exactly `Front`, `Pinyin`, `Дополнение оборота`, `Ima
 The screen reports metadata compatibility, not validation of the HTML in existing templates.
 It never edits an incompatible model.
 
-## Phase 2 (not implemented)
+## Future writes (phase 3; not implemented)
 
 The official wrapper provides `addNote(modelId, deckId, fields, tags)` and returns a note ID.
 In v2.25.1 it inserts the note and moves generated cards to the requested deck. Before any
 future write, revalidate the explicitly selected IDs, Cloze kind and field order. Build Front
 with definition/example sharing `{{c1::word}}`, IPA in Pinyin, and three empty remaining fields.
-Repeated c1 refers to one Cloze card. Implement preview, explicit confirmation, duplicate/error
-handling and a separate write interface. No model/deck creation or template modifications.
+Repeated c1 refers to one Cloze card. Phase 2 adds [draft preparation and preview](anki-preview.md).
+Explicit saving, duplicate/error handling and a separate write interface remain for phase 3. No model/deck creation or template modifications.
 
-## Validation
+## Phase 1 validation
 
 Resource limits: Gradle heap 1536 MiB, Kotlin daemon heap 768 MiB, two workers, no parallel builds.
 Required command passed with Java 21:

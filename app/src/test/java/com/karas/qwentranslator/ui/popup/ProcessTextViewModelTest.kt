@@ -194,4 +194,16 @@ class ProcessTextViewModelTest {
         assertEquals(listOf(Operation.TRANSLATE, Operation.EXPLAIN), calls)
         assertEquals(translated, vm.block(ResultBlock.TRANSLATION))
     }
+    @Test fun ankiOnlySettingsChangesDoNotRegenerateExistingResults() = runTest(dispatcher) {
+        val settings = FakeSettings()
+        var calls = 0
+        val vm = viewModel(settings) { calls++; result(it) }
+        runCurrent()
+        val before = vm.state.value.blocks
+        settings.value = settings.value.copy(ankiDeckId = 42, ankiModelId = 57)
+        vm.refreshSettings(); runCurrent()
+        assertEquals(2, calls)
+        assertEquals(before, vm.state.value.blocks)
+    }
+
 }
