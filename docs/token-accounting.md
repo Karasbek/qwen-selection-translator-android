@@ -3,10 +3,11 @@
 ## Scope
 
 Explain, Translate and Anki Draft still use independent, unchanged prompts and the existing model.
-A normal successful journey costs three logical Groq calls (two translation blocks, then one explicit
+A cold successful journey costs three logical Groq calls (two translation blocks, then one explicit
 card preparation). Preview editing, reopening, saving and unchanged Settings returns add no Groq call.
 IPA dictionary lookup and Google translation fallback are separate services, not Groq usage.
-No general cache, Explain-to-card conversion, telemetry or collection changes were added.
+A later change adds the bounded process-memory AI result cache described in `translation-cache.md`.
+Explain-to-card conversion, telemetry and collection changes remain outside scope.
 
 ## Local diagnostics
 
@@ -42,7 +43,8 @@ in-flight calls. Newly enabled blocks run; disabled blocks cancel and reject sta
 Unchanged errors (including after a key-only save) require explicit Retry; Retry runs one selected block.
 A settings refresh racing initial configuration still starts each enabled operation once.
 ViewModels retain work across Activity recreation; Compose does not launch requests.
-There is no cross-popup/process cache: a genuinely new popup/selection still runs its initial blocks.
+The bounded memory cache now reuses identical AI requests across popups; a new input remains a miss.
+There is no cross-process persistence.
 
 ## Draft lifecycle
 
@@ -59,7 +61,7 @@ from the original context selection, old Explain/Translate and detected language
 explicit configured source language remains respected. Dirty edits still require confirmation before
 replacement; errors/preflight failures retain them. Cloze building and Anki writes are unchanged.
 
-## Verification
+## Optimization 1 verification (before the memory-cache change)
 
 Targeted JVM tests passed before full regression. Full JDK 21 Gradle run with `--max-workers=2 --no-parallel`:
 `testDebugUnitTest assembleDebug lintDebug compileDebugAndroidTestKotlin assembleDebugAndroidTest`.
@@ -79,7 +81,7 @@ The default test path supplies the same ACTION_TRANSLATE entry intent determinis
 
 ## Next optimization, outside this change
 
-Use session diagnostics to measure normal and repeat journeys before deciding on a keyed cache or
-structured Explain reuse. Neither is implemented here. General cache needs explicit input identity,
-expiry and invalidation rules; local Explain-to-card conversion needs quality/word-form validation.
+Use session diagnostics to measure normal and repeat journeys. The limited keyed memory cache is now
+implemented in the follow-up change; persistent caching and structured Explain reuse are not.
+Local Explain-to-card conversion would require quality/word-form validation.
 Do not infer token savings from cancelled calls whose server usage is unknown.

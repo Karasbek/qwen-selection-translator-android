@@ -14,6 +14,7 @@ data class TokenTotal(val known: Long = 0, val samples: Long = 0) {
 data class ApiCounters(
     val started: Long = 0, val httpAttempts: Long = 0, val success: Long = 0,
     val errors: Long = 0, val cancelled: Long = 0,
+    val cacheHits: Long = 0, val cacheMisses: Long = 0, val cacheBypasses: Long = 0,
     val prompt: TokenTotal = TokenTotal(), val completion: TokenTotal = TokenTotal(),
     val total: TokenTotal = TokenTotal(), val cached: TokenTotal = TokenTotal(),
 ) {
@@ -32,6 +33,9 @@ class ApiUsageTracker {
         change(operation) { it.copy(started = it.started + 1) }
         return Attempt(operation)
     }
+    fun cacheHit(operation: ApiOperation) = change(operation) { it.copy(cacheHits = it.cacheHits + 1) }
+    fun cacheMiss(operation: ApiOperation) = change(operation) { it.copy(cacheMisses = it.cacheMisses + 1) }
+    fun cacheBypass(operation: ApiOperation) = change(operation) { it.copy(cacheBypasses = it.cacheBypasses + 1) }
     fun httpAttempt(operation: ApiOperation) = change(operation) { it.copy(httpAttempts = it.httpAttempts + 1) }
     inner class Attempt internal constructor(private val operation: ApiOperation) {
         private var finished = false

@@ -88,7 +88,7 @@ class ProcessTextViewModel(
         if (_state.value.blocks[block] !is ResultUiState.Error) return
         val loaded = settings
         if (loaded != null) {
-            run(block, loaded)
+            run(block, loaded, bypassCache = true)
             return
         }
         // If initial preferences could not be read, recovering one block must still be local.
@@ -107,7 +107,7 @@ class ProcessTextViewModel(
                         })
                     if (block in recovered.enabledBlocks) {
                         requestJobs.remove(block)
-                        run(block, recovered)
+                        run(block, recovered, bypassCache = true)
                     }
                 }
             } catch (e: CancellationException) { throw e }
@@ -157,7 +157,7 @@ class ProcessTextViewModel(
         return before.endpoint() == after.endpoint() && before.model == after.model && prompt(before) == prompt(after)
     }
 
-    private fun run(block: ResultBlock, loaded: AppSettings) {
+    private fun run(block: ResultBlock, loaded: AppSettings, bypassCache: Boolean = false) {
         requestJobs[block]?.cancel()
         val currentGeneration = generation
         val requestId = (requestIds[block] ?: 0L) + 1
@@ -169,7 +169,7 @@ class ProcessTextViewModel(
                 val result = engine.execute(TranslationRequest(
                     text = input.text, operation = block.operation,
                     sourceLanguage = loaded.sourceLanguage, targetLanguage = loaded.targetLanguage,
-                    explanation = loaded.explanation,
+                    explanation = loaded.explanation, bypassCache = bypassCache,
                 ))
                 ensureActive()
                 ResultUiState.Success(result)

@@ -152,8 +152,12 @@ fun SettingsScreen(
                     Text("С начала процесса приложения. Только числа; после перезапуска счётчики сбрасываются.", style = MaterialTheme.typography.bodySmall)
                     diagnostics.operations.forEach { (operation, counts) ->
                         Text(operation.label, style = MaterialTheme.typography.titleSmall)
-                        Text("Начато: ${counts.started} · HTTP попытки: ${counts.httpAttempts} · В работе: ${counts.pending}")
+                        Text("Начато: ${counts.started} · HTTP-вызовы (попытки): ${counts.httpAttempts} · В работе: ${counts.pending}")
                         Text("Успешно: ${counts.success} · Ошибки: ${counts.errors} · Отменено: ${counts.cancelled}")
+                        if (operation != com.karas.qwentranslator.core.ApiOperation.ANKI_DRAFT) {
+                            Text("Cache hits: ${counts.cacheHits} · Cache misses: ${counts.cacheMisses} · Обходы: ${counts.cacheBypasses}")
+                            Text("Groq-вызовов предотвращено: ${counts.cacheHits}")
+                        }
                         Text("Input: ${counts.prompt.display()} · Output: ${counts.completion.display()}")
                         Text("Всего: ${counts.total.display()} · Cached: ${counts.cached.display()}")
                     }

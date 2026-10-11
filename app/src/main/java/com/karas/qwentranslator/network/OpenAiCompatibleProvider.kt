@@ -1,5 +1,8 @@
 package com.karas.qwentranslator.network
 
+import com.karas.qwentranslator.core.CacheLoad
+import com.karas.qwentranslator.core.TranslationCacheKey
+import com.karas.qwentranslator.core.TranslationMemoryCache
 import com.karas.qwentranslator.core.FailureKind
 import com.karas.qwentranslator.core.Operation
 import com.karas.qwentranslator.core.PromptBuilder
@@ -24,6 +27,7 @@ class OpenAiCompatibleProvider(
     private val settingsRepository: SettingsStore,
     private val secretStore: ApiKeyStore,
     private val usage: com.karas.qwentranslator.core.ApiUsageTracker? = null,
+    private val cache: TranslationMemoryCache = TranslationMemoryCache(),
 ) : TranslatorProvider {
     override val id: String = "AI"
 
@@ -43,21 +47,25 @@ class OpenAiCompatibleProvider(
 
         val operation = if (request.operation == Operation.EXPLAIN) com.karas.qwentranslator.core.ApiOperation.EXPLAIN else com.karas.qwentranslator.core.ApiOperation.TRANSLATE
         val accounting = usage.takeIf { endpoint.host == "api.groq.com" }
-        val httpRequest = Request.Builder()
-            .tag(com.karas.qwentranslator.core.ApiOperation::class.java, operation.takeIf { accounting != null })
-            .url(endpoint)
-            .header("Authorization", "Bearer $apiKey")
-            .header("Content-Type", "application/json")
-            .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
-            .build()
+        val key = TranslationCacheKey(request.text, request.operation, endpoint.toString(), body.toString())
+        cache.getOrLoad(key, request.bypassCache, accounting) {
+            val httpRequest = Request.Builder()
+                .tag(com.karas.qwentranslator.core.ApiOperation::class.java, operation.takeIf { accounting != null })
+                .url(endpoint)
+                .header("Authorization", "Bearer $apiKey")
+                .header("Content-Type", "application/json")
+                .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
+                .build()
 
-        client.newCall(httpRequest).withApiUsage(accounting, operation) { response ->
-            if (response.code !in 200..299) {
-                throw TranslationException.ProviderFailure("AI HTTP ${response.code}",
-                    kind = HttpFailureMapping.status(response.code),
-                    provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
+            client.newCall(httpRequest).withApiUsage(accounting, operation) { response ->
+                if (response.code !in 200..299) {
+                    throw TranslationException.ProviderFailure("AI HTTP ${response.code}",
+                        kind = HttpFailureMapping.status(response.code),
+                        provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
+                }
+                CacheLoad(parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}"),
+                    complete = JSONObject(response.body).getJSONArray("choices").getJSONObject(0).optString("finish_reason") == "stop")
             }
-            parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}")
         }
     }
 

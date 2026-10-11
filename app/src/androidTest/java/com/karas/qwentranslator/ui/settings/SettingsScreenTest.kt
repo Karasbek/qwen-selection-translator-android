@@ -73,6 +73,7 @@ class SettingsScreenTest {
 
     @Test fun diagnosticsShowKnownTokensAndUnknownUsageWithoutSensitiveData() {
         val counters = ApiCounters(started = 2, httpAttempts = 2, success = 1, cancelled = 1,
+            cacheHits = 1, cacheMisses = 1, cacheBypasses = 0,
             prompt = TokenTotal(20, 1), completion = TokenTotal(10, 1), total = TokenTotal(30, 1))
         compose.setContent { MaterialTheme {
             SettingsScreen(SettingsUiState(loading = false), {}, {}, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {},
@@ -82,6 +83,8 @@ class SettingsScreenTest {
         compose.onAllNodesWithText("Input: 20 (1 ответов) · Output: 10 (1 ответов)", substring = true)[0]
             .performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Cached: неизвестно", substring = true)[0].assertExists()
+        compose.onAllNodesWithText("Cache hits: 1 · Cache misses: 1 · Обходы: 0")[0].performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Groq-вызовов предотвращено: 1")[0].assertExists()
     }
 
 }

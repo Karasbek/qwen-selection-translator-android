@@ -260,4 +260,35 @@ class ProcessTextViewModelTest {
         assertTrue(vm.state.value.blocks.values.all { it is ResultUiState.Success })
     }
 
+    @Test fun explicitRetrySetsBypassOnlyForSelectedOperation() = runTest(dispatcher) {
+        val requests = mutableListOf<TranslationRequest>()
+        val vm = viewModel { requests += it; error("fake") }; runCurrent()
+        vm.retry(ResultBlock.EXPLANATION); runCurrent()
+        assertEquals(3, requests.size)
+        assertFalse(requests[0].bypassCache); assertFalse(requests[1].bypassCache)
+        assertTrue(requests.last().bypassCache)
+        assertEquals(Operation.EXPLAIN, requests.last().operation)
+    }
+    @Test fun memoryCacheIsSharedBetweenPopupsAndRejectsLateOldResults() = runTest(dispatcher) {
+        val cache = TranslationMemoryCache(); var calls = 0
+        val oldGate = CompletableDeferred<Unit>()
+        val action: suspend (TranslationRequest) -> TranslationResult = { request ->
+            cache.getOrLoad(TranslationCacheKey(request.text, request.operation, "fixture", PromptBuilder.build(request)), request.bypassCache) {
+                calls++
+                if (request.text == "old") withContext(NonCancellable) { oldGate.await() }
+                CacheLoad(result(request))
+            }
+        }
+        val first = viewModel(action = action); advanceUntilIdle(); assertEquals(2, calls)
+        val second = viewModel(action = action); advanceUntilIdle(); assertEquals(2, calls)
+        second.acceptInvocation(input.copy(text = "old")); runCurrent()
+        second.acceptInvocation(input.copy(text = "new")); runCurrent()
+        oldGate.complete(Unit); advanceUntilIdle()
+        assertEquals("new", second.state.value.invocation.text)
+        second.state.value.blocks.values.forEach { assertEquals("new", (it as ResultUiState.Success).result.outputText) }
+        assertEquals(6, calls)
+        second.acceptInvocation(input.copy(text = "old")); advanceUntilIdle()
+        assertEquals(8, calls) // Cancelled old work was not cached.
+    }
+
 }

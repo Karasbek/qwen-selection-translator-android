@@ -306,4 +306,41 @@ class ProcessTextActivityTest {
         } finally { instrumentation.runOnMainSync { popup?.finish() } }
     }
 
+    @Test fun repeatedPopupUsesProcessCacheAndKeepsCopyReplaceAndAnkiPreparation() {
+        runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
+        val networkCalls = java.util.concurrent.atomic.AtomicInteger()
+        val tracker = ApiUsageTracker()
+        val client = okhttp3.OkHttpClient.Builder().addInterceptor { chain ->
+            networkCalls.incrementAndGet()
+            okhttp3.Response.Builder().request(chain.request()).protocol(okhttp3.Protocol.HTTP_1_1)
+                .code(200).message("fake").body(okhttp3.ResponseBody.create(null,
+                    """{"usage":{"total_tokens":30},"choices":[{"message":{"content":"fixture result"},"finish_reason":"stop"}]}""")).build()
+        }.build()
+        val keys = object : com.karas.qwentranslator.data.ApiKeyStore {
+            override fun getApiKey() = "fake-only-key"
+            override fun setApiKey(value: String) { error("not needed") }
+        }
+        val provider = com.karas.qwentranslator.network.OpenAiCompatibleProvider(client, app.container.settings, keys, tracker)
+        engineField.set(app.container, DefaultTranslatorEngine(listOf(provider)))
+        scenario = ActivityScenario.launch(intent("agree"))
+        await { state().blocks.values.all { it is ResultUiState.Success } }
+        assertEquals(2, networkCalls.get())
+        scenario!!.close()
+        scenario = ActivityScenario.launch(intent("agree").putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, false))
+        await { state().blocks.values.all { it is ResultUiState.Success } }
+        assertEquals("fixture result", state().replacementText("fixture result"))
+        scenario!!.recreate(); instrumentation.waitForIdleSync()
+        assertEquals(2, networkCalls.get())
+        for (operation in listOf(ApiOperation.EXPLAIN, ApiOperation.TRANSLATE)) {
+            assertEquals(1L, tracker.state.value.operations.getValue(operation).cacheHits)
+            assertEquals(TokenTotal(30, 1), tracker.state.value.operations.getValue(operation).total)
+        }
+        val draft = draftModel()
+        scenario!!.onActivity { draft.open(CardGenerationRequest("agree")) }
+        await { !draft.state.value.loading }
+        assertEquals(1, cardCalls)
+        assertTrue(draft.state.value.draft!!.validation.valid)
+        assertEquals(0, writes.get())
+    }
+
 }
