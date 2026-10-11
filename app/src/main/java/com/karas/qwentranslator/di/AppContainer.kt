@@ -33,8 +33,10 @@ class AppContainer(context: Context) {
         .followSslRedirects(false)
         .build()
 
-    val cardGenerator: com.karas.qwentranslator.anki.CardGenerator = com.karas.qwentranslator.network.GroqCardGenerator(httpClient, settings, secrets, apiUsage)
-    val ipaLookup: com.karas.qwentranslator.anki.IpaLookup = com.karas.qwentranslator.network.DictionaryIpaLookup(httpClient)
+    val pronunciations: com.karas.qwentranslator.anki.PronunciationRepository =
+        com.karas.qwentranslator.anki.OfflinePronunciationRepository {
+            context.applicationContext.assets.open("ipa/en_US.txt").use { it.readBytes() }
+        }
 
     val engine: TranslatorEngine = DefaultTranslatorEngine(
         providers = listOf(

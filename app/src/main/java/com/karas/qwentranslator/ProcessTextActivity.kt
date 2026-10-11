@@ -4,7 +4,8 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
-import com.karas.qwentranslator.anki.CardGenerationRequest
+import com.karas.qwentranslator.anki.AnkiPreparationRequest
+import com.karas.qwentranslator.anki.ExplainState
 import com.karas.qwentranslator.core.ResultBlock
 import com.karas.qwentranslator.ui.popup.ResultUiState
 import com.karas.qwentranslator.ui.anki.AnkiDraftViewModel
@@ -37,7 +38,7 @@ class ProcessTextActivity : ComponentActivity() {
 
     private val ankiDraft: AnkiDraftViewModel by viewModels {
         val container = (application as TranslatorApplication).container
-        AnkiDraftViewModel.Factory(container.cardGenerator, container.ipaLookup, container.anki, container.settings, container.ankiSaver)
+        AnkiDraftViewModel.Factory(container.pronunciations, container.anki, container.settings, container.ankiSaver)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -62,21 +63,29 @@ class ProcessTextActivity : ComponentActivity() {
                     onSettings = ::openSettings,
                     onRetry = viewModel::retry,
                     onDismiss = { finish() },
-                    onAnki = {
-                        val current = viewModel.state.value
-                        val explanation = (current.blocks[ResultBlock.EXPLANATION] as? ResultUiState.Success)?.result
-                        val translation = (current.blocks[ResultBlock.TRANSLATION] as? ResultUiState.Success)?.result
-                        ankiDraft.open(CardGenerationRequest(current.invocation.text,
-                            sourceLanguage = translation?.detectedSourceLanguage ?: current.sourceLanguage,
-                            targetLanguage = current.targetLanguage,
-                            explanation = explanation?.outputText, translation = translation?.outputText))
-                    },
+                    onAnki = { ankiDraft.open(preparationContext()) },
                 )
-                AnkiDraftPreview(draftState, ankiDraft::edit, ankiDraft::regenerate,
+                AnkiDraftPreview(draftState, ankiDraft::edit, { ankiDraft.regenerate(preparationContext()) },
                     ankiDraft::confirmRegeneration, ankiDraft::dismissConfirmation,
                     ankiDraft::cancelGeneration, ankiDraft::close, ankiDraft::save, ankiDraft::confirmSave, ankiDraft::dismissSaveWarning, ankiDraft::verifySave)
             }
         }
+    }
+
+    private fun preparationContext(): AnkiPreparationRequest {
+        val current = viewModel.state.value
+        val block = current.blocks[ResultBlock.EXPLANATION]
+        val explanation = (block as? ResultUiState.Success)?.result
+        val translation = (current.blocks[ResultBlock.TRANSLATION] as? ResultUiState.Success)?.result
+        val status = when (block) {
+            is ResultUiState.Success -> ExplainState.READY
+            ResultUiState.Loading -> ExplainState.LOADING
+            ResultUiState.Disabled -> ExplainState.DISABLED
+            is ResultUiState.Error -> ExplainState.FAILED
+            else -> ExplainState.MISSING
+        }
+        return AnkiPreparationRequest(current.invocation.text,
+            translation?.detectedSourceLanguage ?: current.sourceLanguage, explanation?.outputText, status)
     }
 
     override fun onNewIntent(intent: Intent) {

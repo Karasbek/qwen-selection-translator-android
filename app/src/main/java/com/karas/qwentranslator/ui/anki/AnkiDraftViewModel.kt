@@ -13,6 +13,8 @@ data class AnkiDraftUiState(
     val draft: AnkiCardDraft? = null,
     val metadata: AnkiMetadata = AnkiMetadata(),
     val ipaSource: String? = null,
+    val ipaVariants: List<String> = emptyList(),
+    val explainNotice: String? = null,
     val dirty: Boolean = false,
     val confirmRegeneration: Boolean = false,
     val failure: TranslationFailure? = null,
@@ -24,8 +26,7 @@ data class AnkiDraftUiState(
 
 /** Editor state survives rotation; saving belongs to the application coordinator. */
 class AnkiDraftViewModel(
-    private val generator: CardGenerator,
-    private val ipaLookup: IpaLookup,
+    private val pronunciations: PronunciationRepository,
     private val gateway: AnkiGateway,
     private val settings: SettingsStore,
     private val saver: AnkiSaveCoordinator? = null,
@@ -68,12 +69,12 @@ class AnkiDraftViewModel(
         } else saver?.save(draft, confirmWarning = true)
     }
     fun dismissSaveWarning() { state.value.draft?.let { saver?.dismissWarning(it) } }
-    private var request: CardGenerationRequest? = null
-    private var pendingRequest: CardGenerationRequest? = null
+    private var request: AnkiPreparationRequest? = null
+    private var pendingRequest: AnkiPreparationRequest? = null
     private var job: Job? = null
     private var generation = 0L
 
-    fun open(context: CardGenerationRequest) {
+    fun open(context: AnkiPreparationRequest) {
         if (_state.value.visible || _state.value.loading) return
         val existing = _state.value.draft
         if (existing != null && existing.originalSelection == context.selection) {
@@ -90,14 +91,15 @@ class AnkiDraftViewModel(
         startNew(context)
     }
 
-    private fun startNew(context: CardGenerationRequest) {
+    private fun startNew(context: AnkiPreparationRequest) {
         request = context
-        val draft = AnkiCardDraft.build(context.selection, CardContent(context.selection.trim()), "", null, null, AnkiMetadata())
+        val draft = AnkiCardDraft.build(context.selection, CardContent(context.selection.trim(), explanation = context.explanation.orEmpty()), "", null, null, AnkiMetadata())
         _state.value = AnkiDraftUiState(visible = true, draft = draft)
-        generate(context)
+        prepare(context)
     }
 
-    fun regenerate() {
+    fun regenerate(current: AnkiPreparationRequest? = null) {
+        if (current != null && !saveLocked() && !_state.value.loading) request = current
         if (_state.value.loading || saveLocked()) return
         if (_state.value.dirty) _state.value = _state.value.copy(confirmRegeneration = true)
         else runRegeneration()
@@ -114,10 +116,10 @@ class AnkiDraftViewModel(
         val context = request ?: return
         val word = _state.value.draft?.content?.word ?: context.selection
         val changed = word.trim() != context.selection.trim()
-        generate(context.copy(selection = word,
+        prepare(context.copy(selection = word,
             sourceLanguage = if (changed) "auto" else context.sourceLanguage,
             explanation = if (changed) null else context.explanation,
-            translation = if (changed) null else context.translation))
+            explainState = if (changed) ExplainState.MISSING else context.explainState))
     }
 
     fun edit(content: CardContent, ipa: String) {
@@ -128,7 +130,7 @@ class AnkiDraftViewModel(
         val nextIpa = if (wordChanged) "" else ipa
         _state.value = current.copy(
             draft = AnkiCardDraft.build(previous.originalSelection, content, nextIpa, previous.deckId, previous.modelId, current.metadata),
-            dirty = true, failure = null, saveState = AnkiSaveState.Ready, ipaSource = if (wordChanged || ipa != previous.ipa) null else current.ipaSource,
+            dirty = true, failure = null, saveState = AnkiSaveState.Ready, ipaVariants = if (wordChanged) emptyList() else current.ipaVariants, ipaSource = if (wordChanged) null else if (ipa in current.ipaVariants) "ipa-dict · English (US), офлайн" else if (ipa != previous.ipa) null else current.ipaSource,
         )
     }
 
@@ -168,7 +170,7 @@ class AnkiDraftViewModel(
         }
     }
 
-    private fun generate(context: CardGenerationRequest) {
+    private fun prepare(context: AnkiPreparationRequest) {
         if (_state.value.loading) return
         val currentGeneration = ++generation
         _state.value = _state.value.copy(loading = true, failure = null)
@@ -181,33 +183,29 @@ class AnkiDraftViewModel(
                 val previous = requireNotNull(_state.value.draft)
                 _state.value = _state.value.copy(metadata = metadata, draft = AnkiCardDraft.build(
                     previous.originalSelection, previous.content, previous.ipa, configuration.ankiDeckId, configuration.ankiModelId, metadata))
-                // Preflight only metadata; do not spend a generation when the destination cannot be used.
-                if (metadata.availability.status != AnkiStatus.CONNECTED ||
-                    metadata.decks.none { it.id == configuration.ankiDeckId && it.id > 0 && !it.filtered } ||
-                    metadata.models.none { it.id == configuration.ankiModelId && it.id > 0 && it.compatible }) {
-                    _state.value = _state.value.copy(loading = false)
-                    return@launch
+                // Full Explain is data; never split, paraphrase, classify or call an LLM.
+                val content = CardContent(context.selection.trim(), explanation = context.explanation.orEmpty())
+                val notice = when (context.explainState) {
+                    ExplainState.READY -> null
+                    ExplainState.LOADING -> "Explain ещё загружается. Дождитесь его и нажмите «Подготовить из текущего Explain» или введите текст вручную."
+                    ExplainState.DISABLED -> "Explain выключен. Включите его в настройках или введите текст карточки вручную."
+                    ExplainState.FAILED -> "Explain не получен. Вернитесь к переводу и повторите Explain или введите текст вручную."
+                    ExplainState.MISSING -> "Готового Explain для этого слова нет. Откройте объяснение нужного слова или введите текст вручную."
                 }
-                val data = generator.generate(context.copy(
-                    sourceLanguage = if (context.sourceLanguage == "auto") configuration.sourceLanguage else context.sourceLanguage,
-                    targetLanguage = configuration.targetLanguage, explanationLanguage = configuration.explanation.language))
-                ensureActive()
-                // Never accept a provider's implicit lemma as the selected form.
-                val content = data.copy(word = context.selection.trim())
-                if (generation != currentGeneration) return@launch
-                // Commit successful LLM output before the independent optional IPA operation.
-                _state.value = _state.value.copy(dirty = false, ipaSource = null,
+                _state.value = _state.value.copy(dirty = false, ipaSource = null, ipaVariants = emptyList(), explainNotice = notice,
                     draft = AnkiCardDraft.build(previous.originalSelection, content, "",
                         configuration.ankiDeckId, configuration.ankiModelId, metadata))
                 val prepared = requireNotNull(_state.value.draft)
                 val ipa = try {
-                    ipaLookup.lookup(content.word, if (context.sourceLanguage == "auto") configuration.sourceLanguage else context.sourceLanguage)
+                    pronunciations.lookup(content.word, if (context.sourceLanguage == "auto") configuration.sourceLanguage else context.sourceLanguage)
                 } catch (e: CancellationException) { throw e }
-                catch (_: Exception) { null }
+                catch (_: Exception) { Pronunciations() }
                 ensureActive()
                 if (generation != currentGeneration) return@launch
-                _state.value = _state.value.copy(loading = false, dirty = false, ipaSource = ipa?.source,
-                    draft = AnkiCardDraft.build(previous.originalSelection, content, ipa?.text.orEmpty(), configuration.ankiDeckId, configuration.ankiModelId, metadata).copy(operationId = prepared.operationId))
+                val automatic = ipa.variants.singleOrNull().orEmpty()
+                _state.value = _state.value.copy(loading = false, dirty = false,
+                    ipaSource = ipa.source.takeIf { automatic.isNotBlank() }, ipaVariants = ipa.variants,
+                    draft = AnkiCardDraft.build(previous.originalSelection, content, automatic, configuration.ankiDeckId, configuration.ankiModelId, metadata).copy(operationId = prepared.operationId))
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (generation == currentGeneration) _state.value = _state.value.copy(loading = false, failure = TranslationFailure.from(e))
@@ -215,8 +213,8 @@ class AnkiDraftViewModel(
         }
     }
 
-    class Factory(private val generator: CardGenerator, private val ipa: IpaLookup, private val gateway: AnkiGateway, private val settings: SettingsStore, private val saver: AnkiSaveCoordinator? = null) : ViewModelProvider.Factory {
+    class Factory(private val pronunciations: PronunciationRepository, private val gateway: AnkiGateway, private val settings: SettingsStore, private val saver: AnkiSaveCoordinator? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = AnkiDraftViewModel(generator, ipa, gateway, settings, saver) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = AnkiDraftViewModel(pronunciations, gateway, settings, saver) as T
     }
 }

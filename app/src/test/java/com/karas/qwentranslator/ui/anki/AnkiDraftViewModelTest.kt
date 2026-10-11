@@ -3,7 +3,6 @@ package com.karas.qwentranslator.ui.anki
 import androidx.lifecycle.ViewModelStore
 import com.karas.qwentranslator.FakeSettings
 import com.karas.qwentranslator.anki.*
-import com.karas.qwentranslator.core.*
 import com.karas.qwentranslator.data.AppSettings
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
@@ -17,171 +16,129 @@ class AnkiDraftViewModelTest {
     private val store = ViewModelStore()
     private val gateway = FakeAnkiGateway()
     private val settings = FakeSettings(AppSettings(ankiDeckId = 1234567890123L, ankiModelId = 9876543210123L))
-    private var calls = 0
     private var lookups = 0
-    private var cancelled = 0
-    private var captured: CardGenerationRequest? = null
+    private val explain = "To leave something behind. Example: They abandon the project."
     @Before fun setup() { Dispatchers.setMain(dispatcher) }
     @After fun cleanup() { store.clear(); Dispatchers.resetMain() }
-    private fun vm(action: suspend (CardGenerationRequest) -> CardContent = { content(it.selection) },
-        lookup: suspend () -> DictionaryIpa? = { DictionaryIpa("/əˈɡriː/", "dictionary") }): AnkiDraftViewModel =
-        AnkiDraftViewModel(object : CardGenerator {
-            override suspend fun generate(request: CardGenerationRequest): CardContent { calls++; captured = request; return action(request) }
-        }, object : IpaLookup { override suspend fun lookup(word: String, sourceLanguage: String): DictionaryIpa? { lookups++; return lookup() } },
-            gateway, settings).also { store.put("draft", it) }
-    private fun content(word: String) = CardContent(word, "verb", "To $word means something.", "They $word today.")
+    private fun vm(lookup: suspend () -> Pronunciations = { Pronunciations(listOf("/əˈbændən/")) }) =
+        AnkiDraftViewModel(object : PronunciationRepository {
+            override suspend fun lookup(word: String, sourceLanguage: String): Pronunciations { lookups++; return lookup() }
+        }, gateway, settings).also { store.put("draft", it) }
+    private fun request(text: String? = explain) = AnkiPreparationRequest("abandon", explanation = text)
     private suspend fun complete(vm: AnkiDraftViewModel) = withContext(Dispatchers.Default) {
         withTimeout(5_000) { vm.state.first { !it.loading } }
     }
-    private suspend fun started() = withContext(Dispatchers.Default) { withTimeout(5_000) { while (calls == 0) yield() } }
-
-    @Test fun onlyExplicitOpenGeneratesAndRepeatedOpenDoesNotDuplicate() = runTest(dispatcher) {
-        val vm = vm()
-        assertEquals(0, calls)
-        vm.open(CardGenerationRequest("agree", explanation = "existing explanation", translation = "existing translation"))
-        vm.open(CardGenerationRequest("agree"))
-        vm.regenerate() // A second explicit click while loading must also be ignored.
-        complete(vm)
-        assertEquals(1, calls)
+    @Test fun explicitOpenUsesEntireExplainAndNoGeneratorDependency() = runTest(dispatcher) {
+        val vm = vm(); assertEquals(0, lookups)
+        vm.open(request()); vm.open(request()); complete(vm)
         assertEquals(1, lookups)
-        assertTrue(vm.state.value.draft!!.validation.valid)
-        assertEquals("existing explanation", captured?.explanation)
-        assertEquals("existing translation", captured?.translation)
-        assertEquals(2, gateway.reads) // Only decks/models. Interface has no write operations.
-        assertEquals(1234567890123L, settings.value.ankiDeckId)
+        val draft = vm.state.value.draft!!
+        assertEquals(explain, draft.content.explanation)
+        assertEquals("", draft.content.partOfSpeech)
+        assertTrue(draft.validation.valid)
+        assertEquals("{{c1::abandon}}<br><br>To leave something behind. Example&#58; They {{c1::abandon}} the project.", draft.fields[0])
+        assertEquals(0, gateway.writes)
     }
-    @Test fun editingRebuildsAndClearsIpaWhenWordChanges() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        vm.edit(content("agreed"), vm.state.value.draft!!.ipa)
+    @Test fun editingRebuildsAndClearsIpaOnWordChange() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(CardContent("abandoned", explanation = "They abandoned the project."), "/manual/")
         assertEquals("", vm.state.value.draft!!.ipa)
-        assertNull(vm.state.value.ipaSource)
-        assertTrue(vm.state.value.draft!!.fields[0].contains("{{c1::agreed}}"))
-        assertEquals(1, calls)
-    }
-    @Test fun regenerationNeedsConfirmationAndFailurePreservesCorrections() = runTest(dispatcher) {
-        var fail = false
-        val vm = vm({ if (fail) error("private"); content(it.selection) })
-        vm.open(CardGenerationRequest("agree")); complete(vm)
-        val edited = content("agree").copy(example = "We agree on the plan.")
-        vm.edit(edited, "/manual/")
-        vm.regenerate()
-        assertTrue(vm.state.value.confirmRegeneration)
-        assertEquals(1, calls)
-        vm.dismissConfirmation(); assertEquals(edited, vm.state.value.draft!!.content)
-        fail = true
-        vm.regenerate(); vm.confirmRegeneration(); complete(vm)
-        assertEquals(edited, vm.state.value.draft!!.content)
         assertTrue(vm.state.value.dirty)
-        assertFalse(vm.state.value.toString().contains("private"))
+        assertTrue(vm.state.value.ipaVariants.isEmpty())
+        assertTrue(vm.state.value.draft!!.fields[0].contains("{{c1::abandoned}}"))
     }
-    @Test fun closeAndReopenPreservesEditsWithoutNewRequest() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        vm.edit(content("agree"), "/manual/")
-        vm.close(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        assertEquals("/manual/", vm.state.value.draft!!.ipa)
-        assertEquals(1, calls)
-    }
-    @Test fun newSelectionWarnsBeforeReplacingEditedDraft() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        vm.edit(content("agree"), ""); vm.close(); vm.open(CardGenerationRequest("running"))
+    @Test fun preparationRequiresConfirmationAndUsesFreshExplain() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(CardContent("abandon", explanation = "Manual correction."), "/manual/")
+        vm.regenerate(request("Fresh explanation without an example."))
         assertTrue(vm.state.value.confirmRegeneration)
-        assertEquals("agree", vm.state.value.draft!!.originalSelection)
+        assertEquals("Manual correction.", vm.state.value.draft!!.content.explanation)
+        vm.dismissConfirmation(); assertEquals("/manual/", vm.state.value.draft!!.ipa)
+        vm.regenerate(request("Fresh explanation without an example.")); vm.confirmRegeneration(); complete(vm)
+        assertEquals("Fresh explanation without an example.", vm.state.value.draft!!.content.explanation)
+        assertEquals(2, lookups)
+    }
+    @Test fun closeReopenKeepsManualEditsWithoutRepeatedLookup() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(CardContent("abandon", explanation = "Manual text."), "/manual/")
+        vm.close(); vm.open(request()); complete(vm)
+        assertEquals(1, lookups); assertEquals("Manual text.", vm.state.value.draft!!.content.explanation)
+        assertEquals("/manual/", vm.state.value.draft!!.ipa)
+    }
+    @Test fun newSelectionWarnsBeforeReplacingDirtyDraft() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(vm.state.value.draft!!.content, "/manual/"); vm.close()
+        vm.open(AnkiPreparationRequest("running", explanation = "Moving faster than walking."))
+        assertTrue(vm.state.value.confirmRegeneration)
+        assertEquals("abandon", vm.state.value.draft!!.originalSelection)
         vm.confirmRegeneration(); complete(vm)
         assertEquals("running", vm.state.value.draft!!.originalSelection)
-        assertEquals(2, calls)
     }
-    @Test fun cancelledGenerationCannotApplyLateResultOrCallIpa() = runTest(dispatcher) {
-        val release = CompletableDeferred<Unit>()
-        val vm = vm({ withContext(NonCancellable) { release.await() }; content(it.selection) })
-        vm.open(CardGenerationRequest("agree")); started()
-        vm.cancelGeneration(); release.complete(Unit); advanceUntilIdle()
-        assertFalse(vm.state.value.loading)
-        assertTrue(vm.state.value.draft!!.fields.isEmpty())
-        assertEquals(0, lookups)
+    @Test fun cancelDuringIpaKeepsPreparedContentAndRejectsLateIpa() = runTest(dispatcher) {
+        val gate = CompletableDeferred<Unit>()
+        val vm = vm { withContext(NonCancellable) { gate.await() }; Pronunciations(listOf("/late/")) }
+        vm.open(request())
+        withContext(Dispatchers.Default) { withTimeout(5_000) { vm.state.first { it.draft?.validation?.valid == true } } }
+        vm.close(); gate.complete(Unit); runCurrent()
+        vm.open(request()); complete(vm)
+        assertEquals(explain, vm.state.value.draft!!.content.explanation)
+        assertEquals("", vm.state.value.draft!!.ipa); assertEquals(1, lookups)
     }
-    @Test fun closingPopupCancelsGenerationThroughViewModelLifecycle() = runTest(dispatcher) {
-        val vm = vm({ try { awaitCancellation() } finally { cancelled++ } })
-        vm.open(CardGenerationRequest("agree")); started()
-        store.clear(); runCurrent()
-        assertEquals(1, cancelled)
-    }
-    @Test fun missingTargetsAndChangedFormStayInvalidWithoutWritingSettings() = runTest(dispatcher) {
-        gateway.deckList = emptyList(); gateway.modelList = emptyList()
-        val vm = vm({ CardContent("run", "verb", "To run means moving fast.", "They are running today.") })
-        vm.open(CardGenerationRequest("running")); complete(vm)
-        assertEquals("running", vm.state.value.draft!!.content.word)
-        assertFalse(vm.state.value.draft!!.validation.valid)
-        assertTrue(vm.state.value.draft!!.fields.isEmpty())
-        assertEquals(1234567890123L, settings.value.ankiDeckId)
-    }
-    @Test fun generationErrorDoesNotPreventManualEditingAndDictionaryErrorIsOptional() = runTest(dispatcher) {
-        val vm = vm({ throw TranslationException.ProviderFailure("private", kind = FailureKind.RATE_LIMIT) })
-        vm.open(CardGenerationRequest("agree")); complete(vm)
-        assertEquals(FailureKind.RATE_LIMIT, vm.state.value.failure?.kind)
-        vm.edit(content("agree"), "")
-        assertTrue(vm.state.value.draft!!.validation.valid)
-        val next = vm(lookup = { error("offline") })
-        next.open(CardGenerationRequest("agree")); complete(next)
-        assertTrue(next.state.value.draft!!.validation.valid)
-        assertEquals("", next.state.value.draft!!.ipa)
-    }
-    @Test fun reopeningRefreshesSelectedTargetsWithoutRegeneratingOrLosingEdits() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        vm.edit(content("agree"), "/manual/"); vm.close()
-        settings.value = settings.value.copy(ankiDeckId = null)
-        gateway.modelList = emptyList()
-        vm.open(CardGenerationRequest("agree")); complete(vm)
-        assertEquals(1, calls)
-        assertEquals("/manual/", vm.state.value.draft!!.ipa)
-        assertTrue(vm.state.value.dirty)
-        assertNull(vm.state.value.draft!!.deckId)
-        assertFalse(vm.state.value.draft!!.validation.valid)
-    }
-
-    @Test fun cancellingDuringIpaPreservesCompletedCardAndReopenDoesNotGenerateAgain() = runTest(dispatcher) {
-        val release = CompletableDeferred<DictionaryIpa?>()
-        val vm = vm(lookup = { release.await() }); vm.open(CardGenerationRequest("agree"))
+    @Test fun viewModelDestructionCancelsLookup() = runTest(dispatcher) {
+        var cancelled = false
+        val vm = vm { try { awaitCancellation() } finally { cancelled = true } }
+        vm.open(request())
         withContext(Dispatchers.Default) { withTimeout(5_000) { while (lookups == 0) yield() } }
-        assertEquals(content("agree"), vm.state.value.draft!!.content)
-        assertTrue(vm.state.value.draft!!.validation.valid)
-        val prepared = vm.state.value.draft!!
-        vm.close(); release.complete(DictionaryIpa("/late/", "fixture"))
-        vm.open(CardGenerationRequest("agree")); complete(vm)
-        assertEquals(prepared.content, vm.state.value.draft!!.content)
-        assertEquals(prepared.fields, vm.state.value.draft!!.fields)
-        assertEquals(1, calls); assertEquals(1, lookups); assertEquals("", vm.state.value.draft!!.ipa)
+        store.clear(); runCurrent(); assertTrue(cancelled)
     }
-    @Test fun changedWordRegenerationDropsOldExplainTranslationAndDetectedLanguage() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree", sourceLanguage = "en", explanation = "old explanation", translation = "old translation")); complete(vm)
-        vm.edit(content("running"), ""); vm.regenerate(); assertTrue(vm.state.value.confirmRegeneration)
-        assertEquals(1, calls); vm.confirmRegeneration(); complete(vm)
-        assertEquals("running", captured!!.selection); assertNull(captured!!.explanation); assertNull(captured!!.translation)
-        assertEquals("auto", captured!!.sourceLanguage); assertEquals(2, calls)
-    }
-    @Test fun reopeningUpdatesContextForNextExplicitRegenerationWithoutRegenerating() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm); vm.close()
-        vm.open(CardGenerationRequest("agree", explanation = "fresh explanation", translation = "fresh translation")); complete(vm)
-        assertEquals(1, calls); vm.regenerate(); complete(vm)
-        assertEquals(2, calls); assertEquals("fresh explanation", captured!!.explanation); assertEquals("fresh translation", captured!!.translation)
-    }
-    @Test fun unavailableAnkiAndMissingTargetsNeverCallPaidGeneratorOrIpa() = runTest(dispatcher) {
-        for (status in listOf(AnkiStatus.NOT_INSTALLED, AnkiStatus.PERMISSION_REQUIRED, AnkiStatus.API_UNAVAILABLE)) {
-            gateway.status = status; val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
+    @Test fun missingExplainOffersManualEditingForEveryUnavailableState() = runTest(dispatcher) {
+        for (status in listOf(ExplainState.MISSING, ExplainState.LOADING, ExplainState.DISABLED, ExplainState.FAILED)) {
+            val vm = vm(); vm.open(request(null).copy(explainState = status)); complete(vm)
             assertFalse(vm.state.value.draft!!.validation.valid)
+            assertNotNull(vm.state.value.explainNotice)
+            vm.edit(CardContent("abandon", explanation = "Text prepared manually."), "")
+            assertTrue(vm.state.value.draft!!.validation.valid)
         }
-        gateway.status = AnkiStatus.CONNECTED
-        settings.value = settings.value.copy(ankiDeckId = null)
-        var vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        settings.value = settings.value.copy(ankiDeckId = 1234567890123L, ankiModelId = null)
-        vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        assertEquals(0, calls); assertEquals(0, lookups)
+        assertEquals(0, gateway.writes)
     }
-    @Test fun failedPreflightRetainsManualCorrectionsAfterConfirmedRegeneration() = runTest(dispatcher) {
-        val vm = vm(); vm.open(CardGenerationRequest("agree")); complete(vm)
-        vm.edit(content("agree"), "/manual/"); gateway.modelList = emptyList()
-        vm.regenerate(); vm.confirmRegeneration(); complete(vm)
-        assertEquals(content("agree"), vm.state.value.draft!!.content); assertEquals("/manual/", vm.state.value.draft!!.ipa)
-        assertTrue(vm.state.value.dirty); assertEquals(1, calls)
+    @Test fun dictionaryErrorDoesNotLoseExplanation() = runTest(dispatcher) {
+        val vm = vm { error("offline resource unavailable") }
+        vm.open(request()); complete(vm)
+        assertEquals(explain, vm.state.value.draft!!.content.explanation)
+        assertTrue(vm.state.value.draft!!.validation.valid); assertEquals("", vm.state.value.draft!!.ipa)
     }
-
+    @Test fun multipleIpaVariantsNeedSelectionAndAreNeverGuessed() = runTest(dispatcher) {
+        val vm = vm { Pronunciations(listOf("/one/", "/two/")) }
+        vm.open(request()); complete(vm)
+        assertEquals("", vm.state.value.draft!!.ipa); assertEquals(2, vm.state.value.ipaVariants.size)
+        vm.edit(vm.state.value.draft!!.content, "/two/")
+        assertEquals("/two/", vm.state.value.draft!!.ipa); assertNotNull(vm.state.value.ipaSource)
+    }
+    @Test fun absentIpaLeavesPinyinEmpty() = runTest(dispatcher) {
+        val vm = vm { Pronunciations() }; vm.open(request()); complete(vm)
+        assertEquals("", vm.state.value.draft!!.fields[1])
+    }
+    @Test fun changedWordNeverReusesOldExplanationOnExplicitPreparation() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(CardContent("running", explanation = "Manual new-word explanation."), "")
+        vm.regenerate(request()); vm.confirmRegeneration(); complete(vm)
+        assertEquals("running", vm.state.value.draft!!.content.word)
+        assertEquals("", vm.state.value.draft!!.content.explanation)
+        assertFalse(vm.state.value.draft!!.validation.valid)
+    }
+    @Test fun reopeningRefreshesTargetsAndKeepsEdits() = runTest(dispatcher) {
+        val vm = vm(); vm.open(request()); complete(vm)
+        vm.edit(vm.state.value.draft!!.content, "/manual/"); vm.close()
+        settings.value = settings.value.copy(ankiDeckId = null); gateway.modelList = emptyList()
+        vm.open(request()); complete(vm)
+        assertEquals("/manual/", vm.state.value.draft!!.ipa)
+        assertTrue(vm.state.value.dirty); assertFalse(vm.state.value.draft!!.validation.valid)
+        assertEquals(1, lookups)
+    }
+    @Test fun unavailableAnkiStillAllowsReviewButNeverSavingAutomatically() = runTest(dispatcher) {
+        gateway.status = AnkiStatus.NOT_INSTALLED
+        val vm = vm(); vm.open(request()); complete(vm)
+        assertEquals(explain, vm.state.value.draft!!.content.explanation)
+        assertFalse(vm.state.value.draft!!.validation.valid); assertEquals(0, gateway.writes)
+    }
 }

@@ -3,9 +3,9 @@ package com.karas.qwentranslator.anki
 import java.util.regex.Pattern
 
 /** Plain text from the generator or the editor; never model-produced HTML or Cloze. */
-data class CardContent(val word: String, val partOfSpeech: String = "", val definition: String = "", val example: String = "")
-data class CardBuild(val fields: List<String> = emptyList(), val errors: List<String> = emptyList())
-data class DraftValidation(val errors: List<String>) { val valid: Boolean get() = errors.isEmpty() }
+data class CardContent(val word: String, val partOfSpeech: String = "", val definition: String = "", val example: String = "", val explanation: String? = null)
+data class CardBuild(val fields: List<String> = emptyList(), val errors: List<String> = emptyList(), val warnings: List<String> = emptyList())
+data class DraftValidation(val errors: List<String>, val warnings: List<String> = emptyList()) { val valid: Boolean get() = errors.isEmpty() }
 data class AnkiCardDraft(
     val originalSelection: String,
     val content: CardContent,
@@ -35,13 +35,14 @@ data class AnkiCardDraft(
                     !model.compatible -> errors += "Нужен Cloze с полями Front, Pinyin, Дополнение оборота, Image, Sound"
                 }
             }
-            return AnkiCardDraft(selection, content, ipa, deckId, modelId, card.fields, DraftValidation(errors))
+            return AnkiCardDraft(selection, content, ipa, deckId, modelId, card.fields, DraftValidation(errors, card.warnings))
         }
     }
 }
 
 object ClozeCardBuilder {
     fun build(content: CardContent, ipa: String): CardBuild {
+        if (content.explanation != null) return buildExplanation(content.word.trim(), content.explanation, ipa)
         val word = content.word.trim()
         val errors = mutableListOf<String>()
         if (word.isBlank()) errors += "Введите изучаемое слово или выражение"
@@ -60,6 +61,45 @@ object ClozeCardBuilder {
         }
         val front = (if (pos.isBlank()) "" else escape(pos) + " ") + definition + "<br><br>" + example
         return CardBuild(listOf(front, escape(ipa.trim()), "", "", ""))
+    }
+
+    private fun buildExplanation(word: String, explanation: String, ipa: String): CardBuild {
+        val errors = mutableListOf<String>()
+        if (word.isBlank() || word.length > 200 || word.any { it == '\n' || it == '\r' || it == '\t' })
+            errors += "Введите слово или выражение в одной строке (до 200 символов)"
+        if (explanation.isBlank()) errors += "Добавьте готовое Explain или введите текст карточки вручную"
+        if (explanation.length > 12000 || ipa.length > 200) errors += "Сократите содержимое карточки"
+        if (listOf(word, explanation, ipa).any { value -> value.any { it.isISOControl() && it !in "\n\r\t" } })
+            errors += "Удалите управляющие символы"
+        if (errors.isNotEmpty()) return CardBuild(errors = errors)
+        fun wordPart(at: Int): Boolean {
+            if (at !in explanation.indices) return false
+            val start = if (Character.isLowSurrogate(explanation[at]) && at > 0 && Character.isHighSurrogate(explanation[at - 1])) at - 1 else at
+            val point = explanation.codePointAt(start)
+            return Character.isLetterOrDigit(point) || point == '_'.code || Character.getType(point) in listOf(
+                Character.NON_SPACING_MARK.toInt(), Character.COMBINING_SPACING_MARK.toInt(), Character.ENCLOSING_MARK.toInt())
+        }
+        fun joined(at: Int, outside: Int) = at in explanation.indices && explanation[at] in "'’-" && wordPart(outside)
+        val matches = Regex(Pattern.quote(word), RegexOption.IGNORE_CASE).findAll(explanation).filter { match ->
+            val before = match.range.first - 1
+            val after = match.range.last + 1
+            !wordPart(before) && !wordPart(after) && !joined(before, before - 1) && !joined(after, after + 1)
+        }.toList()
+        var visible = explanation
+        matches.asReversed().forEach { visible = visible.removeRange(it.range) }
+        if (visible.none { it.isLetterOrDigit() }) return CardBuild(errors = listOf("Добавьте объяснение значения, которое останется видимым"))
+        val body = buildString {
+            var start = 0
+            matches.forEach { match ->
+                append(escape(explanation.substring(start, match.range.first)))
+                append("{{c1::").append(escape(match.value)).append("}}")
+                start = match.range.last + 1
+            }
+            append(escape(explanation.substring(start)))
+        }
+        val front = "{{c1::${escape(word)}}}<br><br>$body"
+        return CardBuild(listOf(front, escape(ipa.trim()), "", "", ""), warnings = listOf(
+            "Другие словоформы не скрываются автоматически. Проверьте текст и при необходимости отредактируйте его, чтобы не раскрыть ответ."))
     }
 
     private fun cloze(text: String, word: String, label: String, errors: MutableList<String>): String {

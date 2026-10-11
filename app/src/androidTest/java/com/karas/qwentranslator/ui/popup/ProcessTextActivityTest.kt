@@ -38,14 +38,12 @@ class ProcessTextActivityTest {
     private val cancelled = CopyOnWriteArrayList<Operation>()
     private val oldReplies = CompletableDeferred<Unit>()
     private var blockRequests = false
-    private var cardCalls = 0
-    private var cardCancelled = false
-    private var blockCard = false
-    private val cardField get() = app.container.javaClass.getDeclaredField("cardGenerator").apply { isAccessible = true }
-    private val ipaField get() = app.container.javaClass.getDeclaredField("ipaLookup").apply { isAccessible = true }
+    private var ipaCalls = 0
+    private var ipaCancelled = false
+    private var blockIpa = false
+    private val ipaField get() = app.container.javaClass.getDeclaredField("pronunciations").apply { isAccessible = true }
     private val ankiField get() = app.container.javaClass.getDeclaredField("anki").apply { isAccessible = true }
-    private lateinit var originalCard: CardGenerator
-    private lateinit var originalIpa: IpaLookup
+    private lateinit var originalIpa: PronunciationRepository
     private lateinit var originalAnki: AnkiGateway
     private val saverField get() = app.container.javaClass.getDeclaredField("ankiSaver").apply { isAccessible = true }
     private lateinit var originalSaver: AnkiSaveCoordinator
@@ -56,18 +54,14 @@ class ProcessTextActivityTest {
 
     @Before fun installCountedEngine() {
         originalSaver = app.container.ankiSaver
-        originalCard = app.container.cardGenerator
-        originalIpa = app.container.ipaLookup
+        originalIpa = app.container.pronunciations
         originalAnki = app.container.anki
-        cardField.set(app.container, object : CardGenerator {
-            override suspend fun generate(request: CardGenerationRequest): CardContent {
-                cardCalls++
-                if (blockCard) try { awaitCancellation() } finally { cardCancelled = true }
-                return CardContent(request.selection, "verb", "To ${request.selection} means something.", "They ${request.selection} today.")
+        ipaField.set(app.container, object : PronunciationRepository {
+            override suspend fun lookup(word: String, sourceLanguage: String): Pronunciations {
+                ipaCalls++
+                if (blockIpa) try { awaitCancellation() } finally { ipaCancelled = true }
+                return Pronunciations(listOf("/əˈɡriː/"))
             }
-        })
-        ipaField.set(app.container, object : IpaLookup {
-            override suspend fun lookup(word: String, sourceLanguage: String) = DictionaryIpa("/əˈɡriː/", "fake dictionary")
         })
         ankiField.set(app.container, object : AnkiGateway {
             override fun availability() = AnkiAvailability(AnkiStatus.CONNECTED)
@@ -98,7 +92,7 @@ class ProcessTextActivityTest {
                     try { awaitCancellation() } finally { cancelled += request.operation }
                 }
                 if (request.text == "old") withContext(NonCancellable) { oldReplies.await() }
-                return TranslationResult(request.text, "counted fake", operation = request.operation)
+                return TranslationResult(if (request.operation == Operation.EXPLAIN) explanation(request.text) else request.text, "counted fake", operation = request.operation)
             }
         })
     }
@@ -109,7 +103,6 @@ class ProcessTextActivityTest {
         saverField.set(app.container, originalSaver)
         oldReplies.complete(Unit)
         scenario?.close()
-        cardField.set(app.container, originalCard)
         ipaField.set(app.container, originalIpa)
         ankiField.set(app.container, originalAnki)
         engineField.set(app.container, original)
@@ -117,6 +110,9 @@ class ProcessTextActivityTest {
         runBlocking { settingsJob.cancelAndJoin() }
         temporarySettings.deleteRecursively()
     }
+
+    private fun explanation(word: String) = "To $word means something. Example: They $word today."
+    private fun preparation(word: String) = AnkiPreparationRequest(word, "en", explanation(word))
 
     private fun intent(text: String) = Intent(instrumentation.targetContext, ProcessTextActivity::class.java)
         .setAction(Intent.ACTION_PROCESS_TEXT).setType("text/plain")
@@ -177,7 +173,7 @@ class ProcessTextActivityTest {
         instrumentation.waitForIdleSync()
         scenario!!.recreate()
         assertEquals("new", state().invocation.text)
-        state().blocks.values.forEach { assertEquals("new", (it as ResultUiState.Success).result.outputText) }
+        state().blocks.values.forEach { val result = (it as ResultUiState.Success).result; assertEquals(if (result.operation == Operation.EXPLAIN) explanation("new") else "new", result.outputText) }
         assertEquals(4, requests.size)
     }
 
@@ -199,10 +195,10 @@ class ProcessTextActivityTest {
         runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
         launch("agree")
         val model = draftModel()
-        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { model.open(preparation("agree")) }
         await { !model.state.value.loading }
-        assertEquals(1, cardCalls)
-        scenario!!.onActivity { model.edit(model.state.value.draft!!.content.copy(example = "We agree on the plan."), "/manual/") }
+        assertEquals(1, ipaCalls)
+        scenario!!.onActivity { model.edit(model.state.value.draft!!.content.copy(explanation = "We agree on the plan."), "/manual/") }
         val before = model.state.value
         scenario!!.onActivity { it.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         awaitOrientation(Configuration.ORIENTATION_LANDSCAPE)
@@ -211,18 +207,18 @@ class ProcessTextActivityTest {
         awaitOrientation(Configuration.ORIENTATION_PORTRAIT)
         scenario!!.recreate()
         assertEquals(before, draftModel().state.value)
-        assertEquals(1, cardCalls)
+        assertEquals(1, ipaCalls)
         assertEquals(2, requests.size)
     }
     @Test fun finishingPopupCancelsCardPreparationAsWellAsTranslations() {
         runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
-        blockCard = true
+        blockIpa = true
         launch("agree")
         val model = draftModel()
-        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
-        await { cardCalls == 1 }
+        scenario!!.onActivity { model.open(preparation("agree")) }
+        await { ipaCalls == 1 }
         scenario!!.close(); scenario = null
-        await { cardCancelled }
+        await { ipaCancelled }
     }
 
     @Test fun saveSurvivesRecreationAndPopupFinishWithOnlyOneFakeInsertion() {
@@ -230,7 +226,7 @@ class ProcessTextActivityTest {
         blockWrite = true
         launch("agree")
         val model = draftModel()
-        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { model.open(preparation("agree")) }
         await { !model.state.value.loading }
         scenario!!.onActivity { model.save(); model.save() }
         await { writes.get() == 1 && model.state.value.saveState == AnkiSaveState.Saving }
@@ -244,7 +240,7 @@ class ProcessTextActivityTest {
         assertEquals(1, writes.get())
         launch("agree")
         val reopened = draftModel()
-        scenario!!.onActivity { reopened.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { reopened.open(preparation("agree")) }
         await { !reopened.state.value.loading }
         scenario!!.onActivity { reopened.save() }
         await { reopened.state.value.saveState is AnkiSaveState.Warning }
@@ -260,14 +256,14 @@ class ProcessTextActivityTest {
             repeat(3) { popup.refreshSettings() }
         }
         val model = draftModel()
-        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { model.open(preparation("agree")) }
         await { !model.state.value.loading }
-        scenario!!.onActivity { model.close(); model.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { model.close(); model.open(preparation("agree")) }
         await { !model.state.value.loading }
         scenario!!.recreate()
         instrumentation.waitForIdleSync()
         assertEquals(2, requests.size)
-        assertEquals(1, cardCalls)
+        assertEquals(1, ipaCalls)
         assertEquals(0, writes.get())
     }
 
@@ -279,10 +275,11 @@ class ProcessTextActivityTest {
                 .setAction(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, "abandon"))
             await { requests.size == 2 }
             assertEquals(com.karas.qwentranslator.util.InvocationSource.TRANSLATE_ACTION, state().invocation.source)
-            assertEquals(0, cardCalls)
+            assertEquals(0, ipaCalls)
             return
         }
         runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
+        ipaField.set(app.container, originalIpa) // Physical smoke uses bundled offline dictionary.
         // The operator selects only the supplied public fixture while these fake dependencies remain installed.
         val deadline = SystemClock.uptimeMillis() + 55_000
         while (requests.size < 2 && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
@@ -293,13 +290,17 @@ class ProcessTextActivityTest {
             popup = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
                 .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
                 .filterIsInstance<ProcessTextActivity>().single()
-            ViewModelProvider(popup!!)[AnkiDraftViewModel::class.java].open(CardGenerationRequest("abandon"))
         }
         try {
             var model: AnkiDraftViewModel? = null
             instrumentation.runOnMainSync { model = ViewModelProvider(popup!!)[AnkiDraftViewModel::class.java] }
-            await { !model!!.state.value.loading }
-            assertEquals(1, cardCalls)
+            // Operator presses the actual popup button while counted fakes remain installed.
+            val previewDeadline = SystemClock.uptimeMillis() + 55_000
+            while ((!model!!.state.value.visible || model!!.state.value.loading) && SystemClock.uptimeMillis() < previewDeadline) SystemClock.sleep(50)
+            assertTrue(model!!.state.value.visible && !model!!.state.value.loading)
+            assertEquals(explanation("abandon"), model!!.state.value.draft!!.content.explanation)
+            assertEquals(0, ipaCalls)
+            assertEquals("/əˈbændən/", model!!.state.value.draft!!.ipa)
             assertTrue(model!!.state.value.draft!!.validation.valid)
             assertEquals(0, writes.get())
             assertEquals(2, requests.size)
@@ -336,9 +337,9 @@ class ProcessTextActivityTest {
             assertEquals(TokenTotal(30, 1), tracker.state.value.operations.getValue(operation).total)
         }
         val draft = draftModel()
-        scenario!!.onActivity { draft.open(CardGenerationRequest("agree")) }
+        scenario!!.onActivity { draft.open(preparation("agree")) }
         await { !draft.state.value.loading }
-        assertEquals(1, cardCalls)
+        assertEquals(1, ipaCalls)
         assertTrue(draft.state.value.draft!!.validation.valid)
         assertEquals(0, writes.get())
     }

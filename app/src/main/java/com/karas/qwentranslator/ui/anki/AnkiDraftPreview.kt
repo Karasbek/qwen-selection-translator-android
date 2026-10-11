@@ -49,18 +49,25 @@ fun AnkiDraftPreview(
                                     enabled = !state.loading && !state.saveState.locked, singleLine = singleLine, modifier = Modifier.fillMaxWidth())
                             }
                             field("Слово или выражение", content.word, { onEdit(content.copy(word = it), draft.ipa) }, true)
-                            field("Часть речи", content.partOfSpeech, { onEdit(content.copy(partOfSpeech = it), draft.ipa) }, true)
-                            field("Определение", content.definition, { onEdit(content.copy(definition = it), draft.ipa) })
-                            field("Пример", content.example, { onEdit(content.copy(example = it), draft.ipa) })
+                            field("Текст Explain / Front", content.explanation ?: listOf(content.definition, content.example).filter(String::isNotBlank).joinToString("\n\n"),
+                                { onEdit(content.copy(partOfSpeech = "", definition = "", example = "", explanation = it), draft.ipa) })
                             field("IPA (поле Pinyin)", draft.ipa, { onEdit(content, it) }, true)
+                            state.explainNotice?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            if (state.ipaVariants.size > 1) {
+                                Text("В словаре несколько вариантов IPA. Выберите подходящий или введите вручную." + if (draft.ipa.isBlank()) " Поле Pinyin пока пустое." else " Вариант выбран.")
+                                state.ipaVariants.forEach { variant ->
+                                    OutlinedButton(onClick = { onEdit(content, variant) }, enabled = !state.loading && !state.saveState.locked) { Text(variant) }
+                                }
+                            }
                             if (!state.loading) Text(state.ipaSource?.let { "IPA: $it (словарный вариант)" }
                                 ?: if (draft.ipa.isBlank()) "Надёжный IPA не найден. Можно ввести вручную." else "IPA введён вручную",
                                 style = MaterialTheme.typography.bodySmall)
                             Text("Front", style = MaterialTheme.typography.titleSmall)
                             SelectionContainer { Text(draft.fields.firstOrNull() ?: if (state.loading) "Front появится после подготовки" else "Исправьте данные для формирования Front") }
                             if (!state.loading) {
-                                Text(if (draft.validation.valid) "Карточка корректна: две вставки c1, одна карточка" else "Нужно исправить:",
+                                Text(if (draft.validation.valid) "Карточка корректна: все вставки c1, одна карточка" else "Нужно исправить:",
                                     color = if (draft.validation.valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                                draft.validation.warnings.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
                                 draft.validation.errors.forEach { Text(it, color = MaterialTheme.colorScheme.error) }
                             }
                         }
@@ -71,7 +78,7 @@ fun AnkiDraftPreview(
                             TextButton(onClick = onCancelGeneration) { Text("Отменить подготовку") }
                         }
                         OutlinedButton(onClick = onRegenerate, enabled = !state.loading && !state.saveState.locked, modifier = Modifier.fillMaxWidth()) {
-                            Text("Сгенерировать заново")
+                            Text("Подготовить из текущего Explain")
                         }
                     }
                     when (val saving = state.saveState) {
@@ -103,7 +110,7 @@ fun AnkiDraftPreview(
     if (state.confirmRegeneration) AlertDialog(
         onDismissRequest = onDismissConfirmation,
         title = { Text("Заменить исправления?") },
-        text = { Text("Новая генерация заменит ваши изменения в черновике.") },
+        text = { Text("Повторная подготовка из текущего Explain заменит ваши изменения в черновике.") },
         confirmButton = { TextButton(onClick = onConfirmRegeneration) { Text("Заменить") } },
         dismissButton = { TextButton(onClick = onDismissConfirmation) { Text("Оставить исправления") } },
     )

@@ -7,6 +7,8 @@ class FakeAnkiGateway : AnkiGateway {
     var status = AnkiStatus.CONNECTED
     var deckList = listOf(AnkiDeck(1234567890123L, "English"))
     var modelList = listOf(AnkiModel(9876543210123L, "Custom", AnkiModel.expectedFields, 1))
+    var writes = 0
+    override fun addNote(draft: AnkiCardDraft, onInserted: (Long) -> Unit): Long? { writes++; error("Unexpected write in metadata/draft test") }
     var reads = 0
     var failure: Exception? = null
     override fun availability() = AnkiAvailability(status, "2.25.1")

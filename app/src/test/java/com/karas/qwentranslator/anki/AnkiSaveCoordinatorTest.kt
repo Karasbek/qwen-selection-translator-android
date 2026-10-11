@@ -203,4 +203,22 @@ class AnkiSaveCoordinatorTest {
         c.dismissWarning(d); c.save(d); advanceUntilIdle(); assertEquals(1, gateway.calls)
     }
 
+    @Test fun fullExplainDraftUsesSameFreshSafetyChecksAndOrderedFields() = runTest {
+        val d = AnkiCardDraft.build("agree", CardContent("agree", explanation = "To share an opinion. We agree; they agree."),
+            "/əˈɡriː/", 42, 57, AnkiConnection(gateway).load())
+        val c = coordinator(this)
+        assertEquals(0, gateway.calls); assertTrue(d.validation.valid)
+        c.save(d); c.save(d); advanceUntilIdle()
+        assertEquals(1, gateway.calls)
+        assertEquals(listOf("{{c1::agree}}<br><br>To share an opinion. We {{c1::agree}}; they {{c1::agree}}.", "/əˈɡriː/", "", "", ""), gateway.inserted!!.fields)
+        assertEquals(AnkiSaveState.Saved(123), c.state(d))
+    }
+    @Test fun editedGeneratedFrontCannotBypassFullExplainRevalidation() = runTest {
+        val d = AnkiCardDraft.build("agree", CardContent("agree", explanation = "To share an opinion."),
+            "", 42, 57, AnkiConnection(gateway).load())
+        val tampered = d.copy(fields = listOf("{{c2::agree}}", "", "", "", ""))
+        val c = coordinator(this); c.save(tampered); advanceUntilIdle()
+        assertEquals(0, gateway.calls); assertTrue(c.state(tampered) is AnkiSaveState.FailedBeforeWrite)
+    }
+
 }

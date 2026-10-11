@@ -1,3 +1,5 @@
+> Current Anki preparation: [full Explain + offline IPA](anki-local-preview.md). Anki adds no Groq request; earlier generation counts/semantic-extraction findings below describe the previous implementation.
+
 # Groq usage and request lifecycle (Optimization 1)
 
 ## Scope

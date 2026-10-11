@@ -1,3 +1,5 @@
+> Current Anki preparation: [full Explain + offline IPA](anki-local-preview.md). Anki adds no Groq request; earlier generation counts/semantic-extraction findings below describe the previous implementation.
+
 # Anki preview — phase 2
 
 Historical phase-2 record. Saving added in phase 3 is documented in [anki-saving.md](anki-saving.md).
