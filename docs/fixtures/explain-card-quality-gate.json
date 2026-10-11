@@ -1,0 +1,286 @@
+[
+  {
+    "id": "01-simple-no-example",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person.",
+    "expected": "FALLBACK",
+    "reason": "Нет отдельного примера."
+  },
+  {
+    "id": "02-explicit-example",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person. For example, \"We agree on the plan.\"",
+    "expected": "LOCAL",
+    "reason": "Одна английская дефиниция и явно обозначенный независимый пример.",
+    "manualCandidate": {
+      "definition": "Agree means having the same opinion as another person.",
+      "example": "We agree on the plan."
+    }
+  },
+  {
+    "id": "03-verb-with-object",
+    "selection": "abandon",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To abandon something means to leave it behind. For example, \"They decided to abandon the project.\"",
+    "expected": "LOCAL",
+    "reason": "Естественная форма и одно точное вхождение в каждом компоненте.",
+    "manualCandidate": {
+      "definition": "To abandon something means to leave it behind.",
+      "example": "They decided to abandon the project."
+    }
+  },
+  {
+    "id": "04-several-meanings",
+    "selection": "bank",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Bank can mean a financial institution or the land beside a river. For example, \"We sat on the bank.\"",
+    "expected": "FALLBACK",
+    "reason": "Определение смешивает значения, пример не выбирает единственное определение."
+  },
+  {
+    "id": "05-several-examples",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person. For example, \"We agree on the plan.\" Another example is \"They agree with us.\"",
+    "expected": "FALLBACK",
+    "reason": "Несколько примеров."
+  },
+  {
+    "id": "06-irregular-independent",
+    "selection": "went",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "\"Went\" describes moving to another place in the past. For example, \"We went home early.\"",
+    "expected": "LOCAL",
+    "reason": "Нерегулярная форма сохранена, предложение не переписывается.",
+    "manualCandidate": {
+      "definition": "\"Went\" describes moving to another place in the past.",
+      "example": "We went home early."
+    }
+  },
+  {
+    "id": "07-running-independent",
+    "selection": "running",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Running means moving faster than walking. For example, \"She is running in the park.\"",
+    "expected": "LOCAL",
+    "reason": "В обоих компонентах одна исходная форма, корректное употребление.",
+    "manualCandidate": {
+      "definition": "Running means moving faster than walking.",
+      "example": "She is running in the park."
+    }
+  },
+  {
+    "id": "08-phrasal-verb",
+    "selection": "give up",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To give up means to stop trying. For example, \"They decided to give up after several attempts.\"",
+    "expected": "LOCAL",
+    "reason": "Фраза не разрывается и не лемматизируется.",
+    "manualCandidate": {
+      "definition": "To give up means to stop trying.",
+      "example": "They decided to give up after several attempts."
+    }
+  },
+  {
+    "id": "09-apostrophe",
+    "selection": "don't",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "\"Don't\" means do not. For example, \"I don't like cold coffee.\"",
+    "expected": "LOCAL",
+    "reason": "Апостроф сохранён, оба текста самостоятельны.",
+    "manualCandidate": {
+      "definition": "\"Don't\" means do not.",
+      "example": "I don't like cold coffee."
+    }
+  },
+  {
+    "id": "10-long-discussion",
+    "selection": "abandon",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To abandon something means to leave it behind. The word can refer to people, plans, habits, or objects. It often suggests a permanent decision. The situation affects how strong the word feels. It can describe a change in commitment. For example, \"They decided to abandon the project.\"",
+    "expected": "FALLBACK",
+    "reason": "Несколько контекстных предложений; нельзя молча выбирать одно."
+  },
+  {
+    "id": "11-foreign-example",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person. For example, \"Ils agree avec le plan.\"",
+    "expected": "FALLBACK",
+    "reason": "Пример не на английском, ASCII не доказывает язык.",
+    "manualCandidate": {
+      "definition": "Agree means having the same opinion as another person.",
+      "example": "Ils agree avec le plan."
+    }
+  },
+  {
+    "id": "12-missing-form",
+    "selection": "running",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Running means moving faster than walking. For example, \"They run every morning.\"",
+    "expected": "FALLBACK",
+    "reason": "В примере другая словоформа."
+  },
+  {
+    "id": "13-ambiguous-occurrences",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To agree means to agree with someone. For example, \"We agree on the plan.\"",
+    "expected": "FALLBACK",
+    "reason": "Два вхождения в определении."
+  },
+  {
+    "id": "14-incomplete",
+    "selection": "abandon",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": false,
+    "explanation": "To abandon something means to leave it behind. For example, \"They decided to abandon",
+    "expected": "FALLBACK",
+    "reason": "Неполный ответ."
+  },
+  {
+    "id": "15-unmarked-last-sentence",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person. We agree on the plan.",
+    "expected": "FALLBACK",
+    "reason": "Нельзя считать последнее предложение примером без признака его роли."
+  },
+  {
+    "id": "16-anaphoric-definition",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "It means having the same opinion as another person. For example, \"We agree on the plan.\"",
+    "expected": "FALLBACK",
+    "reason": "В определении нет изучаемой формы, исправление потребует переписывания."
+  },
+  {
+    "id": "17-anaphoric-example",
+    "selection": "agree",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agree means having the same opinion as another person. For example, \"They agree about this.\"",
+    "expected": "FALLBACK",
+    "reason": "Пример зависит от контекста this, недостаточно самостоятельный."
+  },
+  {
+    "id": "18-wrong-grammar",
+    "selection": "running",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To running means moving faster than walking. For example, \"They running in the park.\"",
+    "expected": "FALLBACK",
+    "reason": "Обе строки содержат точную форму, но грамматика неверна.",
+    "manualCandidate": {
+      "definition": "To running means moving faster than walking.",
+      "example": "They running in the park."
+    }
+  },
+  {
+    "id": "19-visible-lemma",
+    "selection": "agreed",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Agreed is the past tense of agree. For example, \"We agreed on the plan.\"",
+    "expected": "FALLBACK",
+    "reason": "Для строгой политики подсказок оставляет родственную изучаемую форму видимой."
+  },
+  {
+    "id": "20-different-sense",
+    "selection": "abandon",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "To abandon something means to keep supporting it. For example, \"They decided to abandon the project.\"",
+    "expected": "FALLBACK",
+    "reason": "Структура корректна, значение неверно; синтаксический валидатор этого не обнаружит.",
+    "manualCandidate": {
+      "definition": "To abandon something means to keep supporting it.",
+      "example": "They decided to abandon the project."
+    }
+  },
+  {
+    "id": "21-noun",
+    "selection": "cat",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "A cat is a small domesticated animal. For example, \"The cat is sleeping on the chair.\"",
+    "expected": "LOCAL",
+    "reason": "Однозначное определение и независимый пример.",
+    "manualCandidate": {
+      "definition": "A cat is a small domesticated animal.",
+      "example": "The cat is sleeping on the chair."
+    }
+  },
+  {
+    "id": "22-adjective",
+    "selection": "bright",
+    "sourceLanguage": "en",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Bright means giving a lot of light. For example, \"The room is bright in the morning.\"",
+    "expected": "LOCAL",
+    "reason": "Одно значение, корректная форма в обоих компонентах.",
+    "manualCandidate": {
+      "definition": "Bright means giving a lot of light.",
+      "example": "The room is bright in the morning."
+    }
+  },
+  {
+    "id": "23-unknown-source",
+    "selection": "gift",
+    "sourceLanguage": "auto",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "A gift is something given to another person. For example, \"She gave me a gift.\"",
+    "expected": "FALLBACK",
+    "reason": "Без знания языка выделения gift может быть английским или немецким словом."
+  },
+  {
+    "id": "24-non-ascii-first-version",
+    "selection": "naïve",
+    "sourceLanguage": "auto",
+    "explanationLanguage": "English",
+    "complete": true,
+    "explanation": "Naïve means lacking experience or good judgment. For example, \"His plan was naïve.\"",
+    "expected": "FALLBACK",
+    "reason": "Заранее ограниченная английская версия не должна угадывать язык по латинице/диакритике."
+  }
+]
