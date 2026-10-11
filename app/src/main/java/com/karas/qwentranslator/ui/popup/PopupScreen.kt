@@ -37,6 +37,7 @@ fun PopupScreen(
     onSettings: () -> Unit,
     onRetry: (ResultBlock) -> Unit,
     onDismiss: () -> Unit,
+    onAnki: () -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var showInfo by remember { mutableStateOf(false) }
@@ -91,6 +92,7 @@ fun PopupScreen(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onAnki, modifier = Modifier.fillMaxWidth()) { Text("В Anki") }
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text("Закрыть") }
             }
         }

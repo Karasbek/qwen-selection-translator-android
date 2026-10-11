@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.ui.settings
 
+import com.karas.qwentranslator.anki.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -25,8 +26,14 @@ fun SettingsScreen(
     onApiKeyChange: (String) -> Unit, onExplanationChange: (ExplanationOptions) -> Unit,
     onBlockEnabled: (ResultBlock, Boolean) -> Unit, onMoveBlock: (ResultBlock, Int) -> Unit,
     onSave: () -> Unit,
+    onAnkiRefresh: () -> Unit = {},
+    onAnkiPermission: () -> Unit = {},
+    onAnkiDeck: (Long?) -> Unit = {},
+    onAnkiModel: (Long?) -> Unit = {},
+    diagnostics: ApiDiagnostics = ApiDiagnostics(),
 ) {
     val editable = !state.loading && !state.saving
+    var showDiagnostics by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(16.dp)) {
         Text("Настройки чтения", style = MaterialTheme.typography.headlineSmall)
@@ -50,6 +57,44 @@ fun SettingsScreen(
                             enabled = editable && (block !in state.enabledBlocks || state.enabledBlocks.size > 1),
                             modifier = Modifier.semantics { contentDescription = "Включить: ${block.title()}" })
                     }
+                }
+            }
+            SettingsSection("Anki") {
+                val anki = state.anki
+                val status = anki.availability.status
+                Text(if (anki.loading) "Проверка подключения…" else when (status) {
+                    AnkiStatus.NOT_INSTALLED -> "AnkiDroid не установлен"
+                    AnkiStatus.API_UNAVAILABLE -> "Подключение недоступно. Проверьте, включён ли доступ для других приложений в AnkiDroid."
+                    AnkiStatus.PERMISSION_REQUIRED -> "Нужно разрешить доступ к AnkiDroid"
+                    AnkiStatus.CONNECTED -> "Подключено к AnkiDroid ${anki.availability.version.orEmpty()}"
+                    AnkiStatus.ERROR -> "Не удалось прочитать коллекцию. Откройте AnkiDroid и повторите проверку."
+                })
+                Text("Qwen читает только названия колод, типов заметок и полей. Заметки и шаблоны не изменяются.",
+                    style = MaterialTheme.typography.bodySmall)
+                if (status == AnkiStatus.PERMISSION_REQUIRED) {
+                    Text("AnkiDroid использует общее разрешение на чтение и запись коллекции даже для чтения. На этом этапе Qwen ничего не записывает.",
+                        style = MaterialTheme.typography.bodySmall)
+                    OutlinedButton(onClick = onAnkiPermission, enabled = editable && !anki.loading) { Text("Разрешить доступ к AnkiDroid") }
+                }
+                TextButton(onClick = onAnkiRefresh, enabled = editable && !anki.loading) { Text("Проверить подключение") }
+                if (status == AnkiStatus.CONNECTED && !anki.loading) {
+                    if (anki.decks.isEmpty()) Text("В коллекции нет доступных колод")
+                    if (anki.deckMissing(state.ankiDeckId)) Text("Ранее выбранная колода недоступна. Выберите колоду вручную.")
+                    Choice("Колода", state.ankiDeckId,
+                        listOf(null to "Не выбрана") + anki.decks.map { it.id to it.name }, editable, onAnkiDeck)
+                    if (anki.models.isEmpty()) Text("В коллекции нет доступных типов заметок")
+                    if (anki.modelMissing(state.ankiModelId)) Text("Ранее выбранный тип заметки недоступен. Выберите тип вручную.")
+                    Choice("Тип заметки", state.ankiModelId,
+                        listOf(null to "Не выбран") + anki.models.map { it.id to it.name }, editable, onAnkiModel)
+                    anki.models.firstOrNull { it.id == state.ankiModelId }?.let { model ->
+                        Text("Поля: " + model.fields.joinToString(", "))
+                        Text(when {
+                            !model.isCloze -> "Несовместимо: нужен тип заметки Cloze"
+                            !model.compatible -> "Cloze: поля не соответствуют шаблону. Ожидаются: " + AnkiModel.expectedFields.joinToString(", ")
+                            else -> "Совместимо с вашим Cloze: все пять полей совпадают"
+                        })
+                    }
+                    Text("Выбор применяется кнопкой «Сохранить».", style = MaterialTheme.typography.bodySmall)
                 }
             }
             SettingsSection("Объяснение") {
@@ -99,6 +144,26 @@ fun SettingsScreen(
                 Text("Выделенный текст отправляется выбранному сервису. При отказе AI перевод пробует Google web; объяснение требует AI ключ.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
+            SettingsSection("Диагностика") {
+                TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
+                    Text(if (showDiagnostics) "Скрыть расход Groq" else "Расход Groq")
+                }
+                if (showDiagnostics) {
+                    Text("С начала процесса приложения. Только числа; после перезапуска счётчики сбрасываются.", style = MaterialTheme.typography.bodySmall)
+                    diagnostics.operations.forEach { (operation, counts) ->
+                        Text(operation.label, style = MaterialTheme.typography.titleSmall)
+                        Text("Начато: ${counts.started} · HTTP-вызовы (попытки): ${counts.httpAttempts} · В работе: ${counts.pending}")
+                        Text("Успешно: ${counts.success} · Ошибки: ${counts.errors} · Отменено: ${counts.cancelled}")
+                        if (operation != com.karas.qwentranslator.core.ApiOperation.ANKI_DRAFT) {
+                            Text("Cache hits: ${counts.cacheHits} · Cache misses: ${counts.cacheMisses} · Обходы: ${counts.cacheBypasses}")
+                            Text("Groq-вызовов предотвращено: ${counts.cacheHits}")
+                        }
+                        Text("Input: ${counts.prompt.display()} · Output: ${counts.completion.display()}")
+                        Text("Всего: ${counts.total.display()} · Cached: ${counts.cached.display()}")
+                    }
+                    Text("Токены суммируются только там, где сервис вернул usage. Неизвестный расход не считается нулевым.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
             SettingsSection("Выделение текста") {
                 Text("Выделите текст → Qwen перевод. Если пункта нет в первом ряду, откройте ⋮ и прокрутите список действий.",
                     style = MaterialTheme.typography.bodyMedium)
@@ -133,7 +198,7 @@ private fun <T> Choice(label: String, selected: T, options: List<Pair<T, String>
     Text(label, style = MaterialTheme.typography.labelMedium)
     Box {
         OutlinedButton(onClick = { expanded = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text(options.firstOrNull { it.first == selected }?.second.orEmpty())
+            Text(options.firstOrNull { it.first == selected }?.second ?: "Недоступен — выберите вручную")
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEach { (value, title) ->

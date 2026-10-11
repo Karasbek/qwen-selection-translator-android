@@ -194,4 +194,101 @@ class ProcessTextViewModelTest {
         assertEquals(listOf(Operation.TRANSLATE, Operation.EXPLAIN), calls)
         assertEquals(translated, vm.block(ResultBlock.TRANSLATION))
     }
+    @Test fun ankiOnlySettingsChangesDoNotRegenerateExistingResults() = runTest(dispatcher) {
+        val settings = FakeSettings()
+        var calls = 0
+        val vm = viewModel(settings) { calls++; result(it) }
+        runCurrent()
+        val before = vm.state.value.blocks
+        settings.value = settings.value.copy(ankiDeckId = 42, ankiModelId = 57)
+        vm.refreshSettings(); runCurrent()
+        assertEquals(2, calls)
+        assertEquals(before, vm.state.value.blocks)
+    }
+
+    @Test fun explainSettingsInvalidateOnlyExplain() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; result(it) }; runCurrent()
+        val translation = vm.block(ResultBlock.TRANSLATION)
+        preferences.value = preferences.value.copy(explanation = preferences.value.explanation.copy(language = ExplanationLanguage.RUSSIAN))
+        vm.refreshSettings(); runCurrent()
+        assertEquals(2, calls.count { it == Operation.EXPLAIN }); assertEquals(1, calls.count { it == Operation.TRANSLATE })
+        assertEquals(translation, vm.block(ResultBlock.TRANSLATION))
+    }
+    @Test fun translationLanguagesInvalidateOnlyTranslate() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; result(it) }; runCurrent()
+        val explanation = vm.block(ResultBlock.EXPLANATION)
+        preferences.value = preferences.value.copy(targetLanguage = "de", sourceLanguage = "en")
+        vm.refreshSettings(); runCurrent()
+        assertEquals(1, calls.count { it == Operation.EXPLAIN }); assertEquals(2, calls.count { it == Operation.TRANSLATE })
+        assertEquals(explanation, vm.block(ResultBlock.EXPLANATION)); assertEquals("de", vm.state.value.targetLanguage)
+    }
+    @Test fun unchangedSettingsAndAnkiChangesNeverAutomaticallyRetryErrors() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; error("fixture") }; runCurrent()
+        vm.refreshSettings(); runCurrent()
+        preferences.value = preferences.value.copy(ankiDeckId = 42, ankiModelId = 57)
+        vm.refreshSettings(); runCurrent(); assertEquals(2, calls.size)
+        vm.retry(ResultBlock.EXPLANATION); vm.retry(ResultBlock.EXPLANATION); runCurrent()
+        assertEquals(2, calls.count { it == Operation.EXPLAIN }); assertEquals(1, calls.count { it == Operation.TRANSLATE })
+    }
+    @Test fun unchangedSettingsKeepInFlightJobsAndAvoidDuplicateCallbacks() = runTest(dispatcher) {
+        val preferences = FakeSettings(); var calls = 0; var cancelled = 0
+        val vm = viewModel(preferences) { calls++; try { awaitCancellation() } finally { cancelled++ } }; runCurrent()
+        repeat(3) { vm.refreshSettings(); runCurrent() }
+        preferences.value = preferences.value.copy(explanation = preferences.value.explanation.copy(examples = false))
+        vm.refreshSettings(); runCurrent()
+        assertEquals(3, calls); assertEquals(1, cancelled)
+        assertEquals(ResultUiState.Loading, vm.block(ResultBlock.TRANSLATION))
+    }
+    @Test fun modelOrEndpointChangesInvalidateBothOperations() = runTest(dispatcher) {
+        val preferences = FakeSettings(); var calls = 0
+        val vm = viewModel(preferences) { calls++; result(it) }; runCurrent()
+        preferences.value = preferences.value.copy(model = "fixture-model")
+        vm.refreshSettings(); runCurrent(); assertEquals(4, calls)
+        preferences.value = preferences.value.copy(baseUrl = "https://fixture.invalid/v1")
+        vm.refreshSettings(); runCurrent(); assertEquals(6, calls)
+    }
+
+    @Test fun refreshBeforeInitialConfigurationStillStartsEachOperationOnce() = runTest(dispatcher) {
+        val calls = mutableListOf<TranslationRequest>()
+        val vm = viewModel { calls += it; result(it) }
+        vm.refreshSettings()
+        advanceUntilIdle()
+        assertEquals(2, calls.size)
+        assertTrue(vm.state.value.blocks.values.all { it is ResultUiState.Success })
+    }
+
+    @Test fun explicitRetrySetsBypassOnlyForSelectedOperation() = runTest(dispatcher) {
+        val requests = mutableListOf<TranslationRequest>()
+        val vm = viewModel { requests += it; error("fake") }; runCurrent()
+        vm.retry(ResultBlock.EXPLANATION); runCurrent()
+        assertEquals(3, requests.size)
+        assertFalse(requests[0].bypassCache); assertFalse(requests[1].bypassCache)
+        assertTrue(requests.last().bypassCache)
+        assertEquals(Operation.EXPLAIN, requests.last().operation)
+    }
+    @Test fun memoryCacheIsSharedBetweenPopupsAndRejectsLateOldResults() = runTest(dispatcher) {
+        val cache = TranslationMemoryCache(); var calls = 0
+        val oldGate = CompletableDeferred<Unit>()
+        val action: suspend (TranslationRequest) -> TranslationResult = { request ->
+            cache.getOrLoad(TranslationCacheKey(request.text, request.operation, "fixture", PromptBuilder.build(request)), request.bypassCache) {
+                calls++
+                if (request.text == "old") withContext(NonCancellable) { oldGate.await() }
+                CacheLoad(result(request))
+            }
+        }
+        val first = viewModel(action = action); advanceUntilIdle(); assertEquals(2, calls)
+        val second = viewModel(action = action); advanceUntilIdle(); assertEquals(2, calls)
+        second.acceptInvocation(input.copy(text = "old")); runCurrent()
+        second.acceptInvocation(input.copy(text = "new")); runCurrent()
+        oldGate.complete(Unit); advanceUntilIdle()
+        assertEquals("new", second.state.value.invocation.text)
+        second.state.value.blocks.values.forEach { assertEquals("new", (it as ResultUiState.Success).result.outputText) }
+        assertEquals(6, calls)
+        second.acceptInvocation(input.copy(text = "old")); advanceUntilIdle()
+        assertEquals(8, calls) // Cancelled old work was not cached.
+    }
+
 }

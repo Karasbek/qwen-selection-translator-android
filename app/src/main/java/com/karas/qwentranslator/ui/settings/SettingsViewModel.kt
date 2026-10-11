@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.ui.settings
 
+import com.karas.qwentranslator.anki.*
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -24,18 +25,22 @@ data class SettingsUiState(
     val resultOrder: List<ResultBlock> = ResultBlock.defaultOrder,
     val enabledBlocks: Set<ResultBlock> = ResultBlock.defaultOrder.toSet(),
     val explanation: ExplanationOptions = ExplanationOptions(),
+    val ankiDeckId: Long? = null,
+    val ankiModelId: Long? = null,
+    val anki: AnkiMetadata = AnkiMetadata(),
     val saved: Boolean = false,
     val loading: Boolean = true,
     val saving: Boolean = false,
     val error: String? = null,
 ) {
-    fun settings() = AppSettings(targetLanguage, baseUrl, model, sourceLanguage, resultOrder, enabledBlocks, explanation)
+    fun settings() = AppSettings(targetLanguage, baseUrl, model, sourceLanguage, resultOrder, enabledBlocks, explanation, ankiDeckId, ankiModelId)
     override fun toString(): String = "SettingsUiState(loading=$loading, saving=$saving, saved=$saved, apiKey=<redacted>)"
 }
 
 class SettingsViewModel(
     private val settingsRepository: SettingsStore,
     private val secretStore: ApiKeyStore,
+    private val ankiGateway: AnkiGateway? = null,
 ) : ViewModel() {
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
@@ -53,17 +58,37 @@ class SettingsViewModel(
                         resultOrder = settings.resultOrder,
                         enabledBlocks = settings.enabledBlocks,
                         explanation = settings.explanation,
+                        ankiDeckId = settings.ankiDeckId,
+                        ankiModelId = settings.ankiModelId,
                         apiKey = secretStore.getApiKey().orEmpty(),
                         loading = false,
                     )
                 }
                 _state.value = loaded
+                refreshAnki()
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 _state.value = _state.value.copy(loading = false, error = "Не удалось прочитать настройки. Попробуйте сохранить их заново.")
             }
         }
+    }
+
+    fun refreshAnki() {
+        val gateway = ankiGateway ?: return
+        if (_state.value.loading || _state.value.anki.loading) return
+        _state.value = _state.value.copy(anki = _state.value.anki.copy(loading = true))
+        viewModelScope.launch {
+            val metadata = withContext(Dispatchers.IO) { AnkiConnection(gateway).load() }
+            _state.value = _state.value.copy(anki = metadata)
+        }
+    }
+
+    fun selectAnkiDeck(id: Long?) = mutate {
+        if (id == null || anki.decks.any { it.id == id }) copy(ankiDeckId = id, saved = false) else this
+    }
+    fun selectAnkiModel(id: Long?) = mutate {
+        if (id == null || anki.models.any { it.id == id }) copy(ankiModelId = id, saved = false) else this
     }
 
     fun updateTarget(value: String) = mutate { copy(targetLanguage = value, saved = false, error = null) }
@@ -125,8 +150,8 @@ class SettingsViewModel(
         if (!_state.value.loading && !_state.value.saving) _state.value = _state.value.block()
     }
 
-    class Factory(private val settingsRepository: SettingsStore, private val secretStore: ApiKeyStore) : ViewModelProvider.Factory {
+    class Factory(private val settingsRepository: SettingsStore, private val secretStore: ApiKeyStore, private val ankiGateway: AnkiGateway? = null) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = SettingsViewModel(settingsRepository, secretStore) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = SettingsViewModel(settingsRepository, secretStore, ankiGateway) as T
     }
 }

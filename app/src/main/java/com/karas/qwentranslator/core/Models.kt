@@ -11,6 +11,7 @@ data class TranslationRequest(
     val sourceLanguage: String = "auto",
     val targetLanguage: String = "ru",
     val explanation: ExplanationOptions = ExplanationOptions(),
+    val bypassCache: Boolean = false,
 ) {
     companion object {
         const val MAX_TEXT_LENGTH = 12_000

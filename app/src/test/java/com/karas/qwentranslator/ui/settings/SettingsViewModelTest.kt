@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.ui.settings
 
+import com.karas.qwentranslator.anki.*
 import androidx.lifecycle.ViewModelStore
 import com.karas.qwentranslator.FakeSettings
 import com.karas.qwentranslator.FakeSecrets
@@ -97,4 +98,41 @@ class SettingsViewModelTest {
         vm.moveBlock(ResultBlock.EXPLANATION, -1)
         assertEquals(ResultBlock.defaultOrder, vm.state.value.resultOrder)
     }
+    private suspend fun ankiLoaded(vm: SettingsViewModel) {
+        withContext(Dispatchers.Default) { withTimeout(5_000) {
+            vm.state.first { !it.loading && !it.anki.loading && it.anki.availability.status == AnkiStatus.CONNECTED }
+        } }
+    }
+
+    @Test fun savesAnkiSelectionAndPreservesMissingIdsAfterRestart() = runTest(dispatcher) {
+        val settings = FakeSettings()
+        val gateway = FakeAnkiGateway()
+        val vm = SettingsViewModel(settings, FakeSecrets(), gateway).also { store.put("anki", it) }
+        ankiLoaded(vm)
+        assertNull(vm.state.value.ankiDeckId)
+        assertNull(vm.state.value.ankiModelId)
+        vm.selectAnkiDeck(1234567890123L)
+        vm.selectAnkiModel(9876543210123L)
+        vm.save()
+        loaded(vm)
+        assertEquals(1234567890123L, settings.value.ankiDeckId)
+        assertEquals(9876543210123L, settings.value.ankiModelId)
+        gateway.deckList = listOf(AnkiDeck(55, "Another"))
+        gateway.modelList = emptyList()
+        val restarted = SettingsViewModel(settings, FakeSecrets(), gateway).also { store.put("restartedAnki", it) }
+        ankiLoaded(restarted)
+        assertEquals(1234567890123L, restarted.state.value.ankiDeckId)
+        assertEquals(9876543210123L, restarted.state.value.ankiModelId)
+        assertTrue(restarted.state.value.anki.deckMissing(restarted.state.value.ankiDeckId))
+        assertTrue(restarted.state.value.anki.modelMissing(restarted.state.value.ankiModelId))
+        restarted.selectAnkiDeck(999)
+        assertEquals(1234567890123L, restarted.state.value.ankiDeckId)
+        restarted.selectAnkiDeck(null)
+        restarted.selectAnkiModel(null)
+        restarted.save()
+        loaded(restarted)
+        assertNull(settings.value.ankiDeckId)
+        assertNull(settings.value.ankiModelId)
+    }
+
 }

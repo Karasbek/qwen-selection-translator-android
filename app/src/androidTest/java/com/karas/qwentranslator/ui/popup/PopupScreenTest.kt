@@ -114,4 +114,13 @@ class PopupScreenTest {
         compose.onRoot().performTouchInput { click(Offset(width / 2f, 20f)) }
         assertTrue(closed)
     }
+    @Test fun ankiPreparationRequiresAnExplicitClick() {
+        var calls = 0
+        compose.setContent { MaterialTheme { PopupScreen(state(), {}, {}, {}, {}, {}, onAnki = { calls++ }) } }
+        compose.waitForIdle()
+        assertEquals(0, calls)
+        compose.onNodeWithText("В Anki").assertIsDisplayed().performClick()
+        assertEquals(1, calls)
+    }
+
 }

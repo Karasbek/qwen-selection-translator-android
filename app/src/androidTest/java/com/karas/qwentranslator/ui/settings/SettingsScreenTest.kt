@@ -1,5 +1,6 @@
 package com.karas.qwentranslator.ui.settings
 
+import com.karas.qwentranslator.anki.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -42,4 +43,48 @@ class SettingsScreenTest {
         compose.onNodeWithContentDescription("Пример в объяснении").performScrollTo().performClick()
         assertEquals(false, changed?.examples)
     }
+    @Test fun ankiSelectorsShowFieldsAndCallCallbacks() {
+        val metadata = AnkiMetadata(AnkiAvailability(AnkiStatus.CONNECTED, "2.25.1"),
+            listOf(AnkiDeck(42, "Test deck")),
+            listOf(AnkiModel(57, "Test cloze", AnkiModel.expectedFields, 1)))
+        var deck: Long? = null
+        var model: Long? = null
+        compose.setContent { MaterialTheme {
+            SettingsScreen(SettingsUiState(loading = false, anki = metadata, ankiModelId = 57),
+                {}, {}, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {},
+                onAnkiDeck = { deck = it }, onAnkiModel = { model = it })
+        } }
+        compose.onNodeWithText("Не выбрана").performScrollTo().performClick()
+        compose.onNodeWithText("Test deck").performClick()
+        assertEquals(42L, deck)
+        compose.onNodeWithText("Test cloze").performScrollTo().performClick()
+        compose.onAllNodesWithText("Test cloze")[1].performClick()
+        assertEquals(57L, model)
+        compose.onNodeWithText("Совместимо с вашим Cloze: все пять полей совпадают").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun missingSelectionDoesNotDisplayAnotherDeckAsSelected() {
+        content(SettingsUiState(loading = false, ankiDeckId = 99, ankiModelId = 98,
+            anki = AnkiMetadata(AnkiAvailability(AnkiStatus.CONNECTED), listOf(AnkiDeck(42, "Another")))))
+        compose.onNodeWithText("Ранее выбранная колода недоступна. Выберите колоду вручную.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Ранее выбранный тип заметки недоступен. Выберите тип вручную.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Another").assertDoesNotExist()
+    }
+
+    @Test fun diagnosticsShowKnownTokensAndUnknownUsageWithoutSensitiveData() {
+        val counters = ApiCounters(started = 2, httpAttempts = 2, success = 1, cancelled = 1,
+            cacheHits = 1, cacheMisses = 1, cacheBypasses = 0,
+            prompt = TokenTotal(20, 1), completion = TokenTotal(10, 1), total = TokenTotal(30, 1))
+        compose.setContent { MaterialTheme {
+            SettingsScreen(SettingsUiState(loading = false), {}, {}, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {},
+                diagnostics = ApiDiagnostics(ApiOperation.entries.associateWith { counters }))
+        } }
+        compose.onNodeWithText("Расход Groq").performScrollTo().performClick()
+        compose.onAllNodesWithText("Input: 20 (1 ответов) · Output: 10 (1 ответов)", substring = true)[0]
+            .performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Cached: неизвестно", substring = true)[0].assertExists()
+        compose.onAllNodesWithText("Cache hits: 1 · Cache misses: 1 · Обходы: 0")[0].performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Groq-вызовов предотвращено: 1")[0].assertExists()
+    }
+
 }

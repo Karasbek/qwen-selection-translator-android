@@ -28,6 +28,8 @@ class SettingsRepository(private val store: DataStore<Preferences>) : SettingsSt
 
 /** Stable enum names; old installs and unknown future values receive safe defaults. No secrets here. */
 internal object SettingsPreferences {
+    private val ankiDeck = longPreferencesKey("anki_deck_id")
+    private val ankiModel = longPreferencesKey("anki_model_id")
     private val target = stringPreferencesKey("target_language")
     private val source = stringPreferencesKey("source_language")
     private val base = stringPreferencesKey("base_url")
@@ -43,6 +45,8 @@ internal object SettingsPreferences {
         val defaults = AppSettings()
         val blocks = prefs[enabled]?.mapNotNull { value<ResultBlock>(it) }?.toSet()
         return AppSettings(
+            ankiDeckId = prefs[ankiDeck],
+            ankiModelId = prefs[ankiModel],
             targetLanguage = prefs[target] ?: defaults.targetLanguage,
             baseUrl = prefs[base] ?: defaults.baseUrl,
             model = prefs[model] ?: defaults.model,
@@ -58,6 +62,8 @@ internal object SettingsPreferences {
     }
 
     fun encode(settings: AppSettings, prefs: MutablePreferences) {
+        settings.ankiDeckId?.let { prefs[ankiDeck] = it } ?: prefs.remove(ankiDeck)
+        settings.ankiModelId?.let { prefs[ankiModel] = it } ?: prefs.remove(ankiModel)
         prefs[target] = settings.targetLanguage
         prefs[source] = settings.sourceLanguage
         prefs[base] = settings.baseUrl

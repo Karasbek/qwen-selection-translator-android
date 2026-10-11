@@ -88,7 +88,7 @@ class ProcessTextViewModel(
         if (_state.value.blocks[block] !is ResultUiState.Error) return
         val loaded = settings
         if (loaded != null) {
-            run(block, loaded)
+            run(block, loaded, bypassCache = true)
             return
         }
         // If initial preferences could not be read, recovering one block must still be local.
@@ -107,7 +107,7 @@ class ProcessTextViewModel(
                         })
                     if (block in recovered.enabledBlocks) {
                         requestJobs.remove(block)
-                        run(block, recovered)
+                        run(block, recovered, bypassCache = true)
                     }
                 }
             } catch (e: CancellationException) { throw e }
@@ -127,39 +127,37 @@ class ProcessTextViewModel(
                 ensureActive()
                 if (currentGeneration != generation) return@launch
                 val previous = settings
-                when {
-                    loaded == previous -> {
-                        // A key-only save does not change nonsecret preferences. Recover errors on return.
-                        loaded.resultOrder.filter { _state.value.blocks[it] is ResultUiState.Error }.forEach { run(it, loaded) }
-                    }
-                    previous != null && previous.copy(resultOrder = loaded.resultOrder, enabledBlocks = loaded.enabledBlocks) == loaded -> {
-                        // Reordering/turning a block off must not spend another request on retained results.
-                        val oldBlocks = _state.value.blocks
-                        loaded.resultOrder.filter { it !in loaded.enabledBlocks }.forEach { block ->
-                            requestJobs.remove(block)?.cancel()
-                            requestIds[block] = (requestIds[block] ?: 0L) + 1
-                        }
-                        settings = loaded
-                        _state.value = _state.value.copy(resultOrder = loaded.resultOrder,
-                            blocks = loaded.resultOrder.associateWith { block ->
-                                if (block !in loaded.enabledBlocks) ResultUiState.Disabled
-                                else oldBlocks[block] ?: ResultUiState.Disabled
-                            })
-                        loaded.resultOrder.filter { it in loaded.enabledBlocks && _state.value.blocks[it] == ResultUiState.Disabled }
-                            .forEach { run(it, loaded) }
-                    }
-                    else -> {
-                        requestJobs.values.forEach { it.cancel() }
-                        ++generation
-                        configure(loaded)
+                val oldBlocks = _state.value.blocks
+                settings = loaded
+                _state.value = _state.value.copy(sourceLanguage = loaded.sourceLanguage, targetLanguage = loaded.targetLanguage,
+                    resultOrder = loaded.resultOrder, blocks = loaded.resultOrder.associateWith { block ->
+                        if (block in loaded.enabledBlocks) oldBlocks[block] ?: ResultUiState.Disabled else ResultUiState.Disabled
+                    })
+                loaded.resultOrder.forEach { block ->
+                    if (block !in loaded.enabledBlocks) {
+                        requestJobs.remove(block)?.cancel()
+                        requestIds[block] = (requestIds[block] ?: 0L) + 1
+                    } else if (oldBlocks[block] == ResultUiState.Disabled ||
+                        (previous == null && oldBlocks[block] == ResultUiState.Loading) ||
+                        (previous != null && !sameInputs(block, previous, loaded))) {
+                        run(block, loaded)
                     }
                 }
+                // Unchanged returns (including key-only saves and existing errors) require explicit Retry.
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) { /* Keep already available results; Settings presents its own save error. */ }
         }
     }
 
-    private fun run(block: ResultBlock, loaded: AppSettings) {
+    /** Compare the exact existing prompt, never a broad settings object or credentials. */
+    private fun sameInputs(block: ResultBlock, before: AppSettings, after: AppSettings): Boolean {
+        fun prompt(configuration: AppSettings) = PromptBuilder.build(TranslationRequest(
+            _state.value.invocation.text, block.operation, configuration.sourceLanguage,
+            configuration.targetLanguage, configuration.explanation))
+        return before.endpoint() == after.endpoint() && before.model == after.model && prompt(before) == prompt(after)
+    }
+
+    private fun run(block: ResultBlock, loaded: AppSettings, bypassCache: Boolean = false) {
         requestJobs[block]?.cancel()
         val currentGeneration = generation
         val requestId = (requestIds[block] ?: 0L) + 1
@@ -171,7 +169,7 @@ class ProcessTextViewModel(
                 val result = engine.execute(TranslationRequest(
                     text = input.text, operation = block.operation,
                     sourceLanguage = loaded.sourceLanguage, targetLanguage = loaded.targetLanguage,
-                    explanation = loaded.explanation,
+                    explanation = loaded.explanation, bypassCache = bypassCache,
                 ))
                 ensureActive()
                 ResultUiState.Success(result)

@@ -1,0 +1,9 @@
+{
+  "revision": "43c3570eb3553bdd19fccd2bd0091534889af023",
+  "source": "https://raw.githubusercontent.com/open-dict-data/ipa-dict/43c3570eb3553bdd19fccd2bd0091534889af023/data/en_US.txt",
+  "sha256": "2af6f154a5c363275f052d1f85acedef38ed185ca9745aa4314be77f6b70de67",
+  "bytes": 3180267,
+  "entries": 125927,
+  "bundledSha256": "1a543aaf742b628dd6e59791e3c0d25b94dc208c2f9b0bb9377a4cea53adad55",
+  "modification": "Rows sorted by case-insensitive word for binary lookup; words and pronunciations unchanged."
+}

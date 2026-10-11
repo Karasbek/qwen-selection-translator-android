@@ -39,7 +39,7 @@ class ReadingSettingsTest {
     @Test fun actualDataStoreSurvivesRepositoryAndStoreRestart() = runBlocking {
         val directory = Files.createTempDirectory("reading-settings").toFile()
         val file = directory.resolve("settings.preferences_pb")
-        val changed = AppSettings(resultOrder = ResultBlock.defaultOrder.reversed(), enabledBlocks = setOf(ResultBlock.TRANSLATION),
+        val changed = AppSettings(ankiDeckId = 1234567890123L, ankiModelId = 9876543210123L, resultOrder = ResultBlock.defaultOrder.reversed(), enabledBlocks = setOf(ResultBlock.TRANSLATION),
             sourceLanguage = "en", targetLanguage = "de",
             explanation = ExplanationOptions(ExplanationLanguage.SAME_AS_SOURCE, ExplanationDetail.DETAILED, false))
         val firstJob = SupervisorJob()

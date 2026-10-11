@@ -12,6 +12,8 @@ data class AppSettings(
     val resultOrder: List<ResultBlock> = ResultBlock.defaultOrder,
     val enabledBlocks: Set<ResultBlock> = ResultBlock.defaultOrder.toSet(),
     val explanation: ExplanationOptions = ExplanationOptions(),
+    val ankiDeckId: Long? = null,
+    val ankiModelId: Long? = null,
 ) {
     fun normalized(): AppSettings {
         val defaults = AppSettings()
