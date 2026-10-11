@@ -39,6 +39,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TranslatorTheme {
                 val state by viewModel.state.collectAsStateWithLifecycle()
+                val diagnostics by (application as TranslatorApplication).container.apiUsage.state.collectAsStateWithLifecycle()
                 Surface(modifier = Modifier.fillMaxSize()) {
                     SettingsScreen(
                         state = state,
@@ -55,6 +56,7 @@ class MainActivity : ComponentActivity() {
                         onAnkiPermission = { ankiPermission.launch(AndroidAnkiGateway.PERMISSION) },
                         onAnkiDeck = viewModel::selectAnkiDeck,
                         onAnkiModel = viewModel::selectAnkiModel,
+                        diagnostics = diagnostics,
                     )
                 }
             }

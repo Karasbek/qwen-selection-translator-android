@@ -215,6 +215,7 @@ class ProcessTextActivityTest {
         assertEquals(2, requests.size)
     }
     @Test fun finishingPopupCancelsCardPreparationAsWellAsTranslations() {
+        runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
         blockCard = true
         launch("agree")
         val model = draftModel()
@@ -248,6 +249,61 @@ class ProcessTextActivityTest {
         scenario!!.onActivity { reopened.save() }
         await { reopened.state.value.saveState is AnkiSaveState.Warning }
         assertEquals(1, writes.get())
+    }
+
+    @Test fun unchangedSettingsAndPreviewReopenKeepRequestCountsAfterRecreation() {
+        runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
+        launch("agree")
+        await { state().blocks.values.all { it is ResultUiState.Success } }
+        scenario!!.onActivity { activity ->
+            val popup = ViewModelProvider(activity)[ProcessTextViewModel::class.java]
+            repeat(3) { popup.refreshSettings() }
+        }
+        val model = draftModel()
+        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
+        await { !model.state.value.loading }
+        scenario!!.onActivity { model.close(); model.open(CardGenerationRequest("agree")) }
+        await { !model.state.value.loading }
+        scenario!!.recreate()
+        instrumentation.waitForIdleSync()
+        assertEquals(2, requests.size)
+        assertEquals(1, cardCalls)
+        assertEquals(0, writes.get())
+    }
+
+    /** With -e readeraSmoke true, a synthetic book selection is delivered by the actual ReadEra UI. */
+    @Test fun readEraTranslateActionUsesOnlyCountedFakes() {
+        val physical = InstrumentationRegistry.getArguments().getString("readeraSmoke") == "true"
+        if (!physical) {
+            scenario = ActivityScenario.launch(Intent(instrumentation.targetContext, ProcessTextActivity::class.java)
+                .setAction(Intent.ACTION_TRANSLATE).putExtra(Intent.EXTRA_TEXT, "abandon"))
+            await { requests.size == 2 }
+            assertEquals(com.karas.qwentranslator.util.InvocationSource.TRANSLATE_ACTION, state().invocation.source)
+            assertEquals(0, cardCalls)
+            return
+        }
+        runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
+        // The operator selects only the supplied public fixture while these fake dependencies remain installed.
+        val deadline = SystemClock.uptimeMillis() + 55_000
+        while (requests.size < 2 && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(50)
+        assertEquals(2, requests.size)
+        assertTrue(requests.all { it.text.trim() == "abandon" })
+        var popup: ProcessTextActivity? = null
+        instrumentation.runOnMainSync {
+            popup = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
+                .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
+                .filterIsInstance<ProcessTextActivity>().single()
+            ViewModelProvider(popup!!)[AnkiDraftViewModel::class.java].open(CardGenerationRequest("abandon"))
+        }
+        try {
+            var model: AnkiDraftViewModel? = null
+            instrumentation.runOnMainSync { model = ViewModelProvider(popup!!)[AnkiDraftViewModel::class.java] }
+            await { !model!!.state.value.loading }
+            assertEquals(1, cardCalls)
+            assertTrue(model!!.state.value.draft!!.validation.valid)
+            assertEquals(0, writes.get())
+            assertEquals(2, requests.size)
+        } finally { instrumentation.runOnMainSync { popup?.finish() } }
     }
 
 }

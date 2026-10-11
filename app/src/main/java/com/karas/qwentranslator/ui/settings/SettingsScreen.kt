@@ -30,8 +30,10 @@ fun SettingsScreen(
     onAnkiPermission: () -> Unit = {},
     onAnkiDeck: (Long?) -> Unit = {},
     onAnkiModel: (Long?) -> Unit = {},
+    diagnostics: ApiDiagnostics = ApiDiagnostics(),
 ) {
     val editable = !state.loading && !state.saving
+    var showDiagnostics by remember { mutableStateOf(false) }
     var advanced by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().safeDrawingPadding().imePadding().padding(16.dp)) {
         Text("Настройки чтения", style = MaterialTheme.typography.headlineSmall)
@@ -141,6 +143,22 @@ fun SettingsScreen(
                     singleLine = true, enabled = editable, modifier = Modifier.fillMaxWidth())
                 Text("Выделенный текст отправляется выбранному сервису. При отказе AI перевод пробует Google web; объяснение требует AI ключ.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            SettingsSection("Диагностика") {
+                TextButton(onClick = { showDiagnostics = !showDiagnostics }) {
+                    Text(if (showDiagnostics) "Скрыть расход Groq" else "Расход Groq")
+                }
+                if (showDiagnostics) {
+                    Text("С начала процесса приложения. Только числа; после перезапуска счётчики сбрасываются.", style = MaterialTheme.typography.bodySmall)
+                    diagnostics.operations.forEach { (operation, counts) ->
+                        Text(operation.label, style = MaterialTheme.typography.titleSmall)
+                        Text("Начато: ${counts.started} · HTTP попытки: ${counts.httpAttempts} · В работе: ${counts.pending}")
+                        Text("Успешно: ${counts.success} · Ошибки: ${counts.errors} · Отменено: ${counts.cancelled}")
+                        Text("Input: ${counts.prompt.display()} · Output: ${counts.completion.display()}")
+                        Text("Всего: ${counts.total.display()} · Cached: ${counts.cached.display()}")
+                    }
+                    Text("Токены суммируются только там, где сервис вернул usage. Неизвестный расход не считается нулевым.", style = MaterialTheme.typography.bodySmall)
+                }
             }
             SettingsSection("Выделение текста") {
                 Text("Выделите текст → Qwen перевод. Если пункта нет в первом ряду, откройте ⋮ и прокрутите список действий.",

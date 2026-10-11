@@ -11,6 +11,7 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 class AppContainer(context: Context) {
+    val apiUsage = com.karas.qwentranslator.core.ApiUsageTracker()
     val anki: com.karas.qwentranslator.anki.AnkiGateway = com.karas.qwentranslator.anki.AndroidAnkiGateway(context)
     val settings = SettingsRepository(context.applicationContext)
     val secrets = SecretStore(context.applicationContext)
@@ -18,6 +19,11 @@ class AppContainer(context: Context) {
         com.karas.qwentranslator.anki.FileSaveReceiptStore(context.applicationContext))
 
     private val httpClient = OkHttpClient.Builder()
+        .eventListener(object : okhttp3.EventListener() {
+            override fun requestHeadersStart(call: okhttp3.Call) {
+                call.request().tag(com.karas.qwentranslator.core.ApiOperation::class.java)?.let(apiUsage::httpAttempt)
+            }
+        })
         .connectTimeout(8, TimeUnit.SECONDS)
         .readTimeout(25, TimeUnit.SECONDS)
         .writeTimeout(15, TimeUnit.SECONDS)
@@ -27,12 +33,12 @@ class AppContainer(context: Context) {
         .followSslRedirects(false)
         .build()
 
-    val cardGenerator: com.karas.qwentranslator.anki.CardGenerator = com.karas.qwentranslator.network.GroqCardGenerator(httpClient, settings, secrets)
+    val cardGenerator: com.karas.qwentranslator.anki.CardGenerator = com.karas.qwentranslator.network.GroqCardGenerator(httpClient, settings, secrets, apiUsage)
     val ipaLookup: com.karas.qwentranslator.anki.IpaLookup = com.karas.qwentranslator.network.DictionaryIpaLookup(httpClient)
 
     val engine: TranslatorEngine = DefaultTranslatorEngine(
         providers = listOf(
-            OpenAiCompatibleProvider(httpClient, settings, secrets),
+            OpenAiCompatibleProvider(httpClient, settings, secrets, apiUsage),
             GoogleWebTranslateProvider(httpClient),
         ),
     )

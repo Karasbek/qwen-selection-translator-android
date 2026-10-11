@@ -14,7 +14,7 @@ import org.json.JSONObject
 import org.json.JSONTokener
 
 /** Separate user-triggered request. Does not call or modify the Explain/Translate prompts. */
-class GroqCardGenerator(private val client: OkHttpClient, private val settings: SettingsStore, private val keys: ApiKeyStore) : CardGenerator {
+class GroqCardGenerator(private val client: OkHttpClient, private val settings: SettingsStore, private val keys: ApiKeyStore, private val usage: ApiUsageTracker? = null) : CardGenerator {
     override suspend fun generate(request: CardGenerationRequest): CardContent = withContext(Dispatchers.IO) {
         val key = keys.getApiKey()?.takeIf { it.isNotBlank() }
             ?: throw TranslationException.Configuration("API key required")
@@ -22,12 +22,14 @@ class GroqCardGenerator(private val client: OkHttpClient, private val settings: 
         val endpoint = configuration.endpoint() ?: throw TranslationException.Configuration("Invalid endpoint")
         if (request.selection.isBlank() || request.selection.length > 200)
             throw TranslationException.Configuration("Select a word or short expression")
-        val httpRequest = Request.Builder().url(endpoint).header("Authorization", "Bearer $key")
+        val accounting = usage.takeIf { endpoint.host == "api.groq.com" }
+        val httpRequest = Request.Builder().tag(ApiOperation::class.java, ApiOperation.ANKI_DRAFT.takeIf { accounting != null }).url(endpoint).header("Authorization", "Bearer $key")
             .post(buildBody(configuration, request).toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build()
-        val payload = client.newCall(httpRequest).awaitPayload()
-        if (payload.code !in 200..299) throw TranslationException.ProviderFailure("Card generation failed",
-            kind = HttpFailureMapping.status(payload.code), provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
-        parse(payload.body, request.selection)
+        client.newCall(httpRequest).withApiUsage(accounting, ApiOperation.ANKI_DRAFT) { payload ->
+            if (payload.code !in 200..299) throw TranslationException.ProviderFailure("Card generation failed",
+                kind = HttpFailureMapping.status(payload.code), provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
+            parse(payload.body, request.selection)
+        }
     }
 
     internal fun buildBody(settings: AppSettings, request: CardGenerationRequest): JSONObject {

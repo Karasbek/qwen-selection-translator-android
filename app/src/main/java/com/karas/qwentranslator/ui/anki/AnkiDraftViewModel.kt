@@ -77,6 +77,7 @@ class AnkiDraftViewModel(
         if (_state.value.visible || _state.value.loading) return
         val existing = _state.value.draft
         if (existing != null && existing.originalSelection == context.selection) {
+            request = context // Fresh popup results become context for the next explicit regeneration.
             _state.value = _state.value.copy(visible = true)
             if (!saveLocked()) refreshDestination()
             return
@@ -111,7 +112,12 @@ class AnkiDraftViewModel(
     fun dismissConfirmation() { pendingRequest = null; _state.value = _state.value.copy(confirmRegeneration = false) }
     private fun runRegeneration() {
         val context = request ?: return
-        generate(context.copy(selection = _state.value.draft?.content?.word ?: context.selection))
+        val word = _state.value.draft?.content?.word ?: context.selection
+        val changed = word.trim() != context.selection.trim()
+        generate(context.copy(selection = word,
+            sourceLanguage = if (changed) "auto" else context.sourceLanguage,
+            explanation = if (changed) null else context.explanation,
+            translation = if (changed) null else context.translation))
     }
 
     fun edit(content: CardContent, ipa: String) {
@@ -175,12 +181,25 @@ class AnkiDraftViewModel(
                 val previous = requireNotNull(_state.value.draft)
                 _state.value = _state.value.copy(metadata = metadata, draft = AnkiCardDraft.build(
                     previous.originalSelection, previous.content, previous.ipa, configuration.ankiDeckId, configuration.ankiModelId, metadata))
+                // Preflight only metadata; do not spend a generation when the destination cannot be used.
+                if (metadata.availability.status != AnkiStatus.CONNECTED ||
+                    metadata.decks.none { it.id == configuration.ankiDeckId && it.id > 0 && !it.filtered } ||
+                    metadata.models.none { it.id == configuration.ankiModelId && it.id > 0 && it.compatible }) {
+                    _state.value = _state.value.copy(loading = false)
+                    return@launch
+                }
                 val data = generator.generate(context.copy(
                     sourceLanguage = if (context.sourceLanguage == "auto") configuration.sourceLanguage else context.sourceLanguage,
                     targetLanguage = configuration.targetLanguage, explanationLanguage = configuration.explanation.language))
                 ensureActive()
                 // Never accept a provider's implicit lemma as the selected form.
                 val content = data.copy(word = context.selection.trim())
+                if (generation != currentGeneration) return@launch
+                // Commit successful LLM output before the independent optional IPA operation.
+                _state.value = _state.value.copy(dirty = false, ipaSource = null,
+                    draft = AnkiCardDraft.build(previous.originalSelection, content, "",
+                        configuration.ankiDeckId, configuration.ankiModelId, metadata))
+                val prepared = requireNotNull(_state.value.draft)
                 val ipa = try {
                     ipaLookup.lookup(content.word, if (context.sourceLanguage == "auto") configuration.sourceLanguage else context.sourceLanguage)
                 } catch (e: CancellationException) { throw e }
@@ -188,7 +207,7 @@ class AnkiDraftViewModel(
                 ensureActive()
                 if (generation != currentGeneration) return@launch
                 _state.value = _state.value.copy(loading = false, dirty = false, ipaSource = ipa?.source,
-                    draft = AnkiCardDraft.build(previous.originalSelection, content, ipa?.text.orEmpty(), configuration.ankiDeckId, configuration.ankiModelId, metadata))
+                    draft = AnkiCardDraft.build(previous.originalSelection, content, ipa?.text.orEmpty(), configuration.ankiDeckId, configuration.ankiModelId, metadata).copy(operationId = prepared.operationId))
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 if (generation == currentGeneration) _state.value = _state.value.copy(loading = false, failure = TranslationFailure.from(e))

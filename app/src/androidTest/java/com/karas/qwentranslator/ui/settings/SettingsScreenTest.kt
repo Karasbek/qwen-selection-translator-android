@@ -71,4 +71,17 @@ class SettingsScreenTest {
         compose.onNodeWithText("Another").assertDoesNotExist()
     }
 
+    @Test fun diagnosticsShowKnownTokensAndUnknownUsageWithoutSensitiveData() {
+        val counters = ApiCounters(started = 2, httpAttempts = 2, success = 1, cancelled = 1,
+            prompt = TokenTotal(20, 1), completion = TokenTotal(10, 1), total = TokenTotal(30, 1))
+        compose.setContent { MaterialTheme {
+            SettingsScreen(SettingsUiState(loading = false), {}, {}, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {},
+                diagnostics = ApiDiagnostics(ApiOperation.entries.associateWith { counters }))
+        } }
+        compose.onNodeWithText("Расход Groq").performScrollTo().performClick()
+        compose.onAllNodesWithText("Input: 20 (1 ответов) · Output: 10 (1 ответов)", substring = true)[0]
+            .performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Cached: неизвестно", substring = true)[0].assertExists()
+    }
+
 }

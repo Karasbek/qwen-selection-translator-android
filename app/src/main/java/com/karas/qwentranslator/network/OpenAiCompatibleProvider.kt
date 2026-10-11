@@ -23,6 +23,7 @@ class OpenAiCompatibleProvider(
     private val client: OkHttpClient,
     private val settingsRepository: SettingsStore,
     private val secretStore: ApiKeyStore,
+    private val usage: com.karas.qwentranslator.core.ApiUsageTracker? = null,
 ) : TranslatorProvider {
     override val id: String = "AI"
 
@@ -40,20 +41,24 @@ class OpenAiCompatibleProvider(
 
         val body = buildBody(settings, request)
 
+        val operation = if (request.operation == Operation.EXPLAIN) com.karas.qwentranslator.core.ApiOperation.EXPLAIN else com.karas.qwentranslator.core.ApiOperation.TRANSLATE
+        val accounting = usage.takeIf { endpoint.host == "api.groq.com" }
         val httpRequest = Request.Builder()
+            .tag(com.karas.qwentranslator.core.ApiOperation::class.java, operation.takeIf { accounting != null })
             .url(endpoint)
             .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
             .post(body.toString().toRequestBody(JSON_MEDIA_TYPE))
             .build()
 
-        val response = client.newCall(httpRequest).awaitPayload()
-        if (response.code !in 200..299) {
-            throw TranslationException.ProviderFailure("AI HTTP ${response.code}",
-                kind = HttpFailureMapping.status(response.code),
-                provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
+        client.newCall(httpRequest).withApiUsage(accounting, operation) { response ->
+            if (response.code !in 200..299) {
+                throw TranslationException.ProviderFailure("AI HTTP ${response.code}",
+                    kind = HttpFailureMapping.status(response.code),
+                    provider = if (endpoint.host == "api.groq.com") "Groq" else "AI")
+            }
+            parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}")
         }
-        parse(response.body, request).copy(providerId = "${settings.model} · ${endpoint.host}")
     }
 
     internal fun buildBody(settings: AppSettings, request: TranslationRequest): JSONObject {

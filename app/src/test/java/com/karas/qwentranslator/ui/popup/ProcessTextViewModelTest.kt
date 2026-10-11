@@ -206,4 +206,58 @@ class ProcessTextViewModelTest {
         assertEquals(before, vm.state.value.blocks)
     }
 
+    @Test fun explainSettingsInvalidateOnlyExplain() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; result(it) }; runCurrent()
+        val translation = vm.block(ResultBlock.TRANSLATION)
+        preferences.value = preferences.value.copy(explanation = preferences.value.explanation.copy(language = ExplanationLanguage.RUSSIAN))
+        vm.refreshSettings(); runCurrent()
+        assertEquals(2, calls.count { it == Operation.EXPLAIN }); assertEquals(1, calls.count { it == Operation.TRANSLATE })
+        assertEquals(translation, vm.block(ResultBlock.TRANSLATION))
+    }
+    @Test fun translationLanguagesInvalidateOnlyTranslate() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; result(it) }; runCurrent()
+        val explanation = vm.block(ResultBlock.EXPLANATION)
+        preferences.value = preferences.value.copy(targetLanguage = "de", sourceLanguage = "en")
+        vm.refreshSettings(); runCurrent()
+        assertEquals(1, calls.count { it == Operation.EXPLAIN }); assertEquals(2, calls.count { it == Operation.TRANSLATE })
+        assertEquals(explanation, vm.block(ResultBlock.EXPLANATION)); assertEquals("de", vm.state.value.targetLanguage)
+    }
+    @Test fun unchangedSettingsAndAnkiChangesNeverAutomaticallyRetryErrors() = runTest(dispatcher) {
+        val preferences = FakeSettings(); val calls = mutableListOf<Operation>()
+        val vm = viewModel(preferences) { calls += it.operation; error("fixture") }; runCurrent()
+        vm.refreshSettings(); runCurrent()
+        preferences.value = preferences.value.copy(ankiDeckId = 42, ankiModelId = 57)
+        vm.refreshSettings(); runCurrent(); assertEquals(2, calls.size)
+        vm.retry(ResultBlock.EXPLANATION); vm.retry(ResultBlock.EXPLANATION); runCurrent()
+        assertEquals(2, calls.count { it == Operation.EXPLAIN }); assertEquals(1, calls.count { it == Operation.TRANSLATE })
+    }
+    @Test fun unchangedSettingsKeepInFlightJobsAndAvoidDuplicateCallbacks() = runTest(dispatcher) {
+        val preferences = FakeSettings(); var calls = 0; var cancelled = 0
+        val vm = viewModel(preferences) { calls++; try { awaitCancellation() } finally { cancelled++ } }; runCurrent()
+        repeat(3) { vm.refreshSettings(); runCurrent() }
+        preferences.value = preferences.value.copy(explanation = preferences.value.explanation.copy(examples = false))
+        vm.refreshSettings(); runCurrent()
+        assertEquals(3, calls); assertEquals(1, cancelled)
+        assertEquals(ResultUiState.Loading, vm.block(ResultBlock.TRANSLATION))
+    }
+    @Test fun modelOrEndpointChangesInvalidateBothOperations() = runTest(dispatcher) {
+        val preferences = FakeSettings(); var calls = 0
+        val vm = viewModel(preferences) { calls++; result(it) }; runCurrent()
+        preferences.value = preferences.value.copy(model = "fixture-model")
+        vm.refreshSettings(); runCurrent(); assertEquals(4, calls)
+        preferences.value = preferences.value.copy(baseUrl = "https://fixture.invalid/v1")
+        vm.refreshSettings(); runCurrent(); assertEquals(6, calls)
+    }
+
+    @Test fun refreshBeforeInitialConfigurationStillStartsEachOperationOnce() = runTest(dispatcher) {
+        val calls = mutableListOf<TranslationRequest>()
+        val vm = viewModel { calls += it; result(it) }
+        vm.refreshSettings()
+        advanceUntilIdle()
+        assertEquals(2, calls.size)
+        assertTrue(vm.state.value.blocks.values.all { it is ResultUiState.Success })
+    }
+
 }
