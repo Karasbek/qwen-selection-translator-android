@@ -29,7 +29,7 @@ class AnkiDraftPreviewTest {
         compose.onNodeWithText("Пример").performScrollTo().performTextReplacement("They agree today.")
         compose.onNodeWithText("v. To {{c1::agree}} means to have the same opinion.<br><br>They {{c1::agree}} today.")
             .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("Сохранить в Anki").assertDoesNotExist()
+        compose.onNodeWithText("Сохранить в Anki").assertIsEnabled()
         compose.onNodeWithText("Вернуться к переводу").assertIsDisplayed().performClick()
         assertTrue(closed)
     }
@@ -59,4 +59,55 @@ class AnkiDraftPreviewTest {
         compose.onNodeWithText("Отменить подготовку").performScrollTo().performClick()
         assertTrue(cancelled)
     }
+    @Test fun saveRequiresValidDraftAndShowsProgressWithoutRecompositionCallbacks() {
+        var current by mutableStateOf(state())
+        var calls = 0
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(current, { _, _ -> }, {}, {}, {}, {}, {}, onSave = {
+                calls++; current = current.copy(saveState = AnkiSaveState.Saving)
+            })
+        } }
+        assertEquals(0, calls)
+        compose.onNodeWithText("Сохранить в Anki").performClick()
+        compose.onNodeWithText("Сохранить в Anki").assertIsNotEnabled()
+        compose.onNodeWithText("Сохранение в Anki…").assertIsDisplayed()
+        compose.onNodeWithText("Слово или выражение").assertIsNotEnabled()
+        compose.runOnIdle { current = current.copy(dirty = true) }
+        assertEquals(1, calls)
+    }
+    @Test fun invalidDraftCannotSave() {
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(state().copy(draft = AnkiCardDraft.build("agree", content, "", null, 57, metadata)),
+                { _, _ -> }, {}, {}, {}, {}, {})
+        } }
+        compose.onNodeWithText("Сохранить в Anki").assertIsNotEnabled()
+    }
+    @Test fun duplicateRequiresExplicitConfirmationAndCanCancel() {
+        var confirmed = false; var cancelled = false
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(state().copy(saveState = AnkiSaveState.Warning("Такой Front уже есть")),
+                { _, _ -> }, {}, {}, {}, {}, {}, onConfirmSave = { confirmed = true }, onDismissSaveWarning = { cancelled = true })
+        } }
+        compose.onNodeWithText("Возможный дубликат").assertIsDisplayed()
+        assertFalse(confirmed)
+        compose.onNodeWithText("Отмена").performClick(); assertTrue(cancelled); assertFalse(confirmed)
+    }
+    @Test fun unknownOutcomeBlocksInsertionButAllowsReadOnlyRecheck() {
+        var checked = false
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(state().copy(saveState = AnkiSaveState.OutcomeUnknown(123)),
+                { _, _ -> }, {}, {}, {}, {}, {}, onVerifySave = { checked = true })
+        } }
+        compose.onNodeWithText("Не удалось подтвердить сохранение. Проверь AnkiDroid перед повторной попыткой").assertIsDisplayed()
+        compose.onNodeWithText("Сохранить в Anki").assertIsNotEnabled()
+        compose.onNodeWithText("Проверить сохранение снова").performClick(); assertTrue(checked)
+    }
+    @Test fun successfulSaveShowsConfirmationAndBlocksAnotherTap() {
+        compose.setContent { MaterialTheme {
+            AnkiDraftPreview(state().copy(saveState = AnkiSaveState.Saved(123)), { _, _ -> }, {}, {}, {}, {}, {})
+        } }
+        compose.onNodeWithText("Добавлено в Anki. Для других устройств выполните обычную синхронизацию AnkiDroid.").assertIsDisplayed()
+        compose.onNodeWithText("Сохранить в Anki").assertIsNotEnabled()
+    }
+
 }

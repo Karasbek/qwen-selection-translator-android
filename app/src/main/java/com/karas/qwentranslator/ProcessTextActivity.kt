@@ -37,7 +37,7 @@ class ProcessTextActivity : ComponentActivity() {
 
     private val ankiDraft: AnkiDraftViewModel by viewModels {
         val container = (application as TranslatorApplication).container
-        AnkiDraftViewModel.Factory(container.cardGenerator, container.ipaLookup, container.anki, container.settings)
+        AnkiDraftViewModel.Factory(container.cardGenerator, container.ipaLookup, container.anki, container.settings, container.ankiSaver)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,7 +74,7 @@ class ProcessTextActivity : ComponentActivity() {
                 )
                 AnkiDraftPreview(draftState, ankiDraft::edit, ankiDraft::regenerate,
                     ankiDraft::confirmRegeneration, ankiDraft::dismissConfirmation,
-                    ankiDraft::cancelGeneration, ankiDraft::close)
+                    ankiDraft::cancelGeneration, ankiDraft::close, ankiDraft::save, ankiDraft::confirmSave, ankiDraft::dismissSaveWarning, ankiDraft::verifySave)
             }
         }
     }

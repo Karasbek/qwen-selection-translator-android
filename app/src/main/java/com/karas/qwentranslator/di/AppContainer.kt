@@ -14,6 +14,8 @@ class AppContainer(context: Context) {
     val anki: com.karas.qwentranslator.anki.AnkiGateway = com.karas.qwentranslator.anki.AndroidAnkiGateway(context)
     val settings = SettingsRepository(context.applicationContext)
     val secrets = SecretStore(context.applicationContext)
+    val ankiSaver = com.karas.qwentranslator.anki.AnkiSaveCoordinator(anki, settings,
+        com.karas.qwentranslator.anki.FileSaveReceiptStore(context.applicationContext))
 
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)

@@ -47,8 +47,15 @@ class ProcessTextActivityTest {
     private lateinit var originalCard: CardGenerator
     private lateinit var originalIpa: IpaLookup
     private lateinit var originalAnki: AnkiGateway
+    private val saverField get() = app.container.javaClass.getDeclaredField("ankiSaver").apply { isAccessible = true }
+    private lateinit var originalSaver: AnkiSaveCoordinator
+    private val saveJob = SupervisorJob()
+    private val writes = java.util.concurrent.atomic.AtomicInteger()
+    private val writeGate = java.util.concurrent.CountDownLatch(1)
+    private var blockWrite = false
 
     @Before fun installCountedEngine() {
+        originalSaver = app.container.ankiSaver
         originalCard = app.container.cardGenerator
         originalIpa = app.container.ipaLookup
         originalAnki = app.container.anki
@@ -66,6 +73,13 @@ class ProcessTextActivityTest {
             override fun availability() = AnkiAvailability(AnkiStatus.CONNECTED)
             override fun decks() = listOf(AnkiDeck(42, "Test deck"))
             override fun models() = listOf(AnkiModel(57, "Test cloze", AnkiModel.expectedFields, 1))
+            override fun hasExactDuplicate(modelId: Long, front: String) = false
+            override fun addNote(draft: AnkiCardDraft, onInserted: (Long) -> Unit): Long {
+                writes.incrementAndGet(); onInserted(123)
+                if (blockWrite) check(writeGate.await(15, java.util.concurrent.TimeUnit.SECONDS))
+                return 123
+            }
+            override fun verifyNote(noteId: Long, draft: AnkiCardDraft) = NoteVerification(true)
         })
         original = app.container.engine
         originalSettings = app.container.settings
@@ -74,6 +88,8 @@ class ProcessTextActivityTest {
             scope = CoroutineScope(settingsJob + Dispatchers.IO),
             produceFile = { temporarySettings.resolve("test.preferences_pb") },
         )))
+        saverField.set(app.container, AnkiSaveCoordinator(app.container.anki, app.container.settings,
+            MemorySaveReceiptStore(), CoroutineScope(saveJob + Dispatchers.IO)))
         // Test-only replacement; persistent user settings and the encrypted key are untouched.
         engineField.set(app.container, object : TranslatorEngine {
             override suspend fun execute(request: TranslationRequest): TranslationResult {
@@ -88,6 +104,9 @@ class ProcessTextActivityTest {
     }
 
     @After fun restoreEngine() {
+        writeGate.countDown()
+        runBlocking { saveJob.cancelAndJoin() }
+        saverField.set(app.container, originalSaver)
         oldReplies.complete(Unit)
         scenario?.close()
         cardField.set(app.container, originalCard)
@@ -105,8 +124,9 @@ class ProcessTextActivityTest {
         .putExtra(Intent.EXTRA_PROCESS_TEXT_READONLY, true)
 
     private fun launch(text: String) {
+        val expected = requests.size + 2
         scenario = ActivityScenario.launch(intent(text))
-        await { requests.size == 2 }
+        await { requests.size == expected }
     }
 
     private fun state(): PopupUiState {
@@ -150,6 +170,9 @@ class ProcessTextActivityTest {
         instrumentation.targetContext.startActivity(intent("new").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP))
         await { requests.size == 4 }
         await { state().invocation.text == "new" && state().blocks.values.all { it is ResultUiState.Success } }
+        writeGate.countDown()
+        runBlocking { saveJob.cancelAndJoin() }
+        saverField.set(app.container, originalSaver)
         oldReplies.complete(Unit)
         instrumentation.waitForIdleSync()
         scenario!!.recreate()
@@ -199,6 +222,32 @@ class ProcessTextActivityTest {
         await { cardCalls == 1 }
         scenario!!.close(); scenario = null
         await { cardCancelled }
+    }
+
+    @Test fun saveSurvivesRecreationAndPopupFinishWithOnlyOneFakeInsertion() {
+        runBlocking { app.container.settings.save(com.karas.qwentranslator.data.AppSettings(ankiDeckId = 42, ankiModelId = 57)) }
+        blockWrite = true
+        launch("agree")
+        val model = draftModel()
+        scenario!!.onActivity { model.open(CardGenerationRequest("agree")) }
+        await { !model.state.value.loading }
+        scenario!!.onActivity { model.save(); model.save() }
+        await { writes.get() == 1 && model.state.value.saveState == AnkiSaveState.Saving }
+        scenario!!.recreate()
+        assertEquals(AnkiSaveState.Saving, draftModel().state.value.saveState)
+        scenario!!.onActivity { model.save(); model.close() }
+        scenario!!.close(); scenario = null
+        writeGate.countDown()
+        val draft = model.state.value.draft!!
+        await { app.container.ankiSaver.state(draft) is AnkiSaveState.Saved }
+        assertEquals(1, writes.get())
+        launch("agree")
+        val reopened = draftModel()
+        scenario!!.onActivity { reopened.open(CardGenerationRequest("agree")) }
+        await { !reopened.state.value.loading }
+        scenario!!.onActivity { reopened.save() }
+        await { reopened.state.value.saveState is AnkiSaveState.Warning }
+        assertEquals(1, writes.get())
     }
 
 }

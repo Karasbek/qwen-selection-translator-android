@@ -1,5 +1,7 @@
 # Anki preview — phase 2
 
+Historical phase-2 record. Saving added in phase 3 is documented in [anki-saving.md](anki-saving.md).
+
 The popup's **В Anki** button opens an editable draft and starts a separate card request.
 Opening the translator still starts only its existing independent Explain/Translate operations.
 Their prompts, languages, order, invocation routing, Copy/Replace and secret storage are unchanged.

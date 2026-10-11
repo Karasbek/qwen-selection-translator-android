@@ -14,6 +14,7 @@ data class AnkiCardDraft(
     val modelId: Long?,
     val fields: List<String>,
     val validation: DraftValidation,
+    val operationId: String = java.util.UUID.randomUUID().toString(),
 ) {
     companion object {
         fun build(selection: String, content: CardContent, ipa: String, deckId: Long?, modelId: Long?, metadata: AnkiMetadata): AnkiCardDraft {
@@ -24,6 +25,7 @@ data class AnkiCardDraft(
             else {
                 when {
                     deckId == null -> errors += "Выберите колоду в настройках Qwen"
+                    metadata.decks.any { it.id == deckId && it.filtered } -> errors += "Выберите обычную колоду вместо фильтрованной"
                     metadata.deckMissing(deckId) -> errors += "Выбранная колода больше недоступна. Выберите её заново в настройках."
                 }
                 val model = metadata.models.firstOrNull { it.id == modelId }

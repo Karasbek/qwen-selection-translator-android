@@ -1,15 +1,18 @@
 package com.karas.qwentranslator.anki
 
-/** Metadata only. Intentionally exposes no note, template or collection write operations. */
+/** Official metadata and narrowly scoped, explicit note insertion. No collection management. */
 interface AnkiGateway {
     fun availability(): AnkiAvailability
     fun decks(): List<AnkiDeck>
     fun models(): List<AnkiModel>
+    fun hasExactDuplicate(modelId: Long, front: String): Boolean = error("Duplicate API unavailable")
+    fun addNote(draft: AnkiCardDraft, onInserted: (Long) -> Unit): Long? = error("Write API unavailable")
+    fun verifyNote(noteId: Long, draft: AnkiCardDraft): NoteVerification = error("Verification API unavailable")
 }
 
 enum class AnkiStatus { NOT_INSTALLED, API_UNAVAILABLE, PERMISSION_REQUIRED, CONNECTED, ERROR }
 data class AnkiAvailability(val status: AnkiStatus, val version: String? = null)
-data class AnkiDeck(val id: Long, val name: String)
+data class AnkiDeck(val id: Long, val name: String, val filtered: Boolean = false)
 data class AnkiModel(val id: Long, val name: String, val fields: List<String>, val type: Int) {
     val isCloze: Boolean get() = type == 1
     val compatible: Boolean get() = isCloze && fields == expectedFields
@@ -39,3 +42,5 @@ class AnkiConnection(private val gateway: AnkiGateway) {
         AnkiMetadata(AnkiAvailability(AnkiStatus.ERROR))
     }
 }
+
+data class NoteVerification(val confirmed: Boolean, val message: String? = null)
